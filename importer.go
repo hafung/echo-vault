@@ -675,6 +675,8 @@ func (i *Importer) response(db DBQuery, sid string, p M, ordinal int64, ts float
 	return i.Store.message(db, sid, identity, ordinal, role, body, ts, typ, str(p["phase"]), meta)
 }
 func (i *Importer) rollout(entry rolloutFile, metadata map[string]M, full bool) error {
+	i.Store.importMu.Lock()
+	defer i.Store.importMu.Unlock()
 	path := entry.path
 	stat, err := os.Stat(path)
 	if err != nil {
@@ -761,6 +763,14 @@ func (i *Importer) rollout(entry rolloutFile, metadata map[string]M, full bool) 
 			tx.Rollback()
 		}
 	}()
+	allowed, err := importSession(tx, sid, full)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		i.update(func(s *SyncStatus) { s.Skipped++ })
+		return nil
+	}
 	if err = i.prepareSession(tx, sid, combined, entry.source, entry.archived); err != nil {
 		return err
 	}
@@ -884,6 +894,8 @@ func (i *Importer) checkpoint(db DBQuery, f *os.File, path string, stat os.FileI
 	return i.Store.recount(db, sid)
 }
 func (i *Importer) history(entry rolloutFile, metadata map[string]M, full bool) error {
+	i.Store.importMu.Lock()
+	defer i.Store.importMu.Unlock()
 	signature := fileSignature(entry.path, entry.path+"-wal")
 	key := "db_signature:" + entry.path
 	if !full {
@@ -923,6 +935,7 @@ func (i *Importer) history(entry rolloutFile, metadata map[string]M, full bool) 
 		}
 	}()
 	touched := map[string]bool{}
+	ignored := map[string]bool{}
 	added := 0
 	for recordIndex, d := range rows {
 		if recordIndex > 0 && recordIndex%256 == 0 {
@@ -935,7 +948,19 @@ func (i *Importer) history(entry rolloutFile, metadata map[string]M, full bool) 
 			}
 		}
 		sid := str(d["thread_id"])
+		if ignored[sid] {
+			continue
+		}
 		if !touched[sid] {
+			allowed, e := importSession(tx, sid, full)
+			if e != nil {
+				return e
+			}
+			if !allowed {
+				ignored[sid] = true
+				i.update(func(s *SyncStatus) { s.Skipped++ })
+				continue
+			}
 			meta := metadata[sid]
 			if meta == nil {
 				meta = M{"timestamp": d["created_at_ms"]}
@@ -1001,6 +1026,8 @@ func (i *Importer) history(entry rolloutFile, metadata map[string]M, full bool) 
 	return nil
 }
 func (i *Importer) chatgpt(path string, full bool) error {
+	i.Store.importMu.Lock()
+	defer i.Store.importMu.Unlock()
 	stat, err := os.Stat(path)
 	if err != nil {
 		return err
@@ -1078,6 +1105,16 @@ func (i *Importer) chatgpt(path string, full bool) error {
 		tx, e := i.Store.Write.Begin()
 		if e != nil {
 			return e
+		}
+		allowed, e := importSession(tx, sid, full)
+		if e != nil {
+			tx.Rollback()
+			return e
+		}
+		if !allowed {
+			tx.Rollback()
+			i.update(func(s *SyncStatus) { s.Skipped++ })
+			continue
 		}
 		e = i.Store.session(tx, sid, M{"title": str(first(c["title"], "ChatGPT 对话")), "project": "ChatGPT", "platform": "云端导出", "provider": "ChatGPT", "created": stamp(c["create_time"]), "updated": stamp(c["update_time"]), "metadata": jsonText(M{"current_node": c["current_node"], "branch_count": len(nodes)})})
 		if e != nil {

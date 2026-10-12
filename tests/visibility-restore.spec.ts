@@ -26,6 +26,14 @@ test.beforeEach(async ({ page }) => {
     sessions.find(s=>s.id===id)!.hidden=Number(route.request().postDataJSON().hidden);
     return route.fulfill({json:{ok:true}});
   });
+  await page.route('**/api/sessions/*/delete',route=>{
+    const id=new URL(route.request().url()).pathname.split('/')[3];
+    expect(route.request().postDataJSON()).toEqual({confirmed:true});
+    const index=sessions.findIndex(s=>s.id===id);
+    if(index<0)return route.fulfill({status:404,json:{error:'记录不存在'}});
+    sessions.splice(index,1);
+    return route.fulfill({json:{ok:true}});
+  });
   await page.route('**/api/projects/visibility',route=>{
     const p=route.request().postDataJSON(); sessions.filter(s=>s.project===p.project).forEach(s=>s.project_hidden=Number(p.hidden));
     return route.fulfill({json:{ok:true}});
@@ -92,4 +100,124 @@ test('compressed backup progress and complete restore instructions are shown sep
   await expect(page.locator('#restore-progress')).toContainText('当前数据文件仍然保留');
   await page.setViewportSize({width:390,height:844});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+});
+
+
+test('deleting requires confirmation, removes the empty selected project, and clears reader and URL',async({page})=>{
+  let requests=0;
+  page.on('request',request=>{if(request.url().endsWith('/recent/delete'))requests++;});
+  await page.goto('/');
+  await page.locator('[data-project="最近项目"]').click();
+  await page.locator('[data-id="recent"]').click();
+  await expect(page.locator('#session-visibility + #session-delete')).toBeVisible();
+  await page.getByRole('button',{name:'删除对话',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'删除对话？'});
+  await expect(dialog).toContainText('最近项目的共同关键词');
+  await expect(dialog).toContainText('完整重新扫描');
+  expect(requests).toBe(0);
+  await dialog.getByRole('button',{name:'取消',exact:true}).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator('[data-id="recent"]')).toBeVisible();
+  await page.locator('#session-delete').click();
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  expect(requests).toBe(0);
+  await page.locator('#session-delete').click();
+  await dialog.getByRole('button',{name:'确认删除',exact:true}).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator('[data-project="最近项目"]')).toHaveCount(0);
+  await expect(page.locator('[data-id="recent"]')).toHaveCount(0);
+  await expect(page.locator('[data-id="old"]')).toBeVisible();
+  await expect(page.locator('.reader-header')).toHaveCount(0);
+  await expect(page.locator('#all-count')).toHaveText('1');
+  expect(new URL(page.url()).searchParams.has('session')).toBe(false);
+  expect(new URL(page.url()).searchParams.has('project')).toBe(false);
+  expect(requests).toBe(1);
+  await page.locator('#show-hidden').click();
+  await expect(page.locator('[data-id="recent"]')).toHaveCount(0);
+  await expect(page.locator('[data-project="最近项目"]')).toHaveCount(0);
+});
+
+test('a project remains until all its conversations are deleted, including archived ones',async({page})=>{
+  await page.goto('/');
+  await page.locator('#show-hidden').click();
+  await page.locator('[data-project="旧项目"]').click();
+  await page.locator('[data-id="old"]').click();
+  await page.locator('#session-delete').click();
+  await page.locator('#delete-session-confirm').click();
+  await expect(page.locator('[data-project="旧项目"] b')).toHaveText('1');
+  await expect(page.locator('[data-id="archived"]')).toBeVisible();
+  await page.locator('[data-id="archived"]').click();
+  await page.locator('#session-delete').click();
+  await page.locator('#delete-session-confirm').click();
+  await expect(page.locator('[data-project="旧项目"]')).toHaveCount(0);
+  await expect(page.locator('[data-id="recent"]')).toBeVisible();
+});
+
+test('delete failures keep the conversation and show a retryable error',async({page})=>{
+  await page.route('**/api/sessions/recent/delete',route=>route.fulfill({status:400,json:{error:'档案暂时不可写，请重试'}}));
+  await page.goto('/');
+  await page.locator('[data-id="recent"]').click();
+  await page.locator('#session-delete').click();
+  await page.locator('#delete-session-confirm').click();
+  await expect(page.locator('#delete-session-error')).toHaveText('档案暂时不可写，请重试');
+  await expect(page.locator('#delete-session-dialog')).toBeVisible();
+  await expect(page.locator('#delete-session-confirm')).toBeEnabled();
+  await expect(page.locator('[data-id="recent"]')).toBeVisible();
+  await expect(page.locator('.reader-header')).toContainText('最近项目的共同关键词');
+  await page.locator('#delete-session-cancel').click();
+  await expect(page.locator('#session-delete')).toBeVisible();
+});
+
+test('full scans explain that deleted conversations can be reimported and honor cancellation',async({page})=>{
+  let fullRequests=0;
+  await page.route('**/api/sync',route=>{
+    if(route.request().method()==='POST'){
+      expect(route.request().postDataJSON()).toEqual({full:true});
+      fullRequests++;
+      return route.fulfill({json:{started:true}});
+    }
+    return route.fulfill({json:{running:false,done:0,total:0,imported:0,errors:[],warnings:[]}});
+  });
+  await page.goto('/');
+  await page.locator('#sources-button').click();
+  page.once('dialog',async dialog=>{expect(dialog.message()).toContain('重新收录已删除的对话');await dialog.dismiss();});
+  await page.locator('#full-sync').click();
+  expect(fullRequests).toBe(0);
+  page.once('dialog',async dialog=>{await dialog.accept();});
+  await page.locator('#full-sync').click();
+  await expect.poll(()=>fullRequests).toBe(1);
+});
+
+test('mobile deletion controls fit and pending deletion cannot be submitted twice or dismissed',async({page})=>{
+  let complete!:()=>void, requests=0;
+  const pending=new Promise<void>(resolve=>{complete=resolve;});
+  await page.route('**/api/sessions/recent/delete',async route=>{
+    requests++;
+    await pending;
+    return route.fulfill({status:400,json:{error:'请重试'}});
+  });
+  await page.setViewportSize({width:390,height:844});
+  await page.goto('/');
+  await page.locator('[data-id="recent"]').click();
+  await expect(page.locator('#session-delete')).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.locator('#session-delete').click();
+  const dialog=page.locator('#delete-session-dialog');
+  await expect(dialog).toBeVisible();
+  expect(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+  await page.screenshot({path:'artifacts/mobile-delete-confirmation.png'});
+  await page.locator('#delete-session-confirm').click();
+  await expect(page.locator('#delete-session-confirm')).toBeDisabled();
+  await expect(page.locator('#delete-session-cancel')).toBeDisabled();
+  await expect(page.locator('#delete-session-dialog [data-close-dialog]')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  await expect.poll(()=>requests).toBe(1);
+  complete();
+  await expect(page.locator('#delete-session-error')).toHaveText('请重试');
+  await expect(page.locator('#delete-session-cancel')).toBeEnabled();
+  await page.locator('#delete-session-cancel').click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator('.reader-header')).toBeVisible();
 });

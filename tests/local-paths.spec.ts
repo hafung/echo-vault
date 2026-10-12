@@ -25,6 +25,8 @@ async function fixture(page: Page) {
     const url = new URL(route.request().url());
     if (url.hostname === 'example.com') return route.fulfill({ contentType: 'text/html', body: 'External page' });
     if (url.pathname === '/api/stats') return route.fulfill({ json: { sessions: 1, messages: 1, events: 1, projects: 1, favorites: 0, projects_list: [], platforms: [], providers: [] } });
+    if (url.pathname === '/api/backup/status') return route.fulfill({ json: { directory: '', job: null } });
+    if (url.pathname === '/api/restore/status') return route.fulfill({ json: { job: null } });
     if (url.pathname === '/api/sync') return route.fulfill({ json: { running: false, errors: [], warnings: [] } });
     if (url.pathname === '/api/sessions') return route.fulfill({ json: { items: [session], more: false, offset: 1 } });
     if (url.pathname === '/api/sessions/local-paths') return route.fulfill({ json: { session, items: [{ id: 1, role: 'assistant', kind: 'message', phase: '', timestamp: 1, body, truncated: true, length: body.length + 30, metadata: {} }], total: 1, offset: 0, more: false } });

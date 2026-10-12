@@ -46,6 +46,8 @@ Search is global until a project is selected. Selecting the same project again c
 
 Whitespace-separated keywords use AND matching. Double quotes group an exact phrase. Input is treated as literal text, not SQL or a user-supplied search expression. Three or more characters use a trigram index; single and double characters use separate indexes. Conversation text is searched by default, with optional tool and context search. Long binary or Base64 blocks are retained without being indexed.
 
+The trash button beside conversation visibility opens a confirmation dialog. Deleting removes local content, indexes, raw records, and exclusive attachments, preserving shared payloads and original sources. No project deletion is provided; empty projects disappear automatically. Persistent deletion markers are included in full backups and prevent incremental reimports, including renamed or mirrored sources with the same session ID. A full scan clears a marker when it reimports that session; unavailable sources keep their markers.
+
 Projects and conversations can be hidden and restored. The eye button beside the project heading reveals hidden and source-archived records. Hiding retains contents, attachments, indexes, and raw records. Local visibility choices survive syncs, full scans, and source archive changes. A hidden project also hides subsequently imported conversations in that project. Full backups always include hidden data.
 
 Messages load in batches of 30, with at most 90 in the continuous reading window. Long messages initially show 24,000 characters and can be expanded. Images load lazily. Font size, theme, and desktop navigation collapse preferences are remembered locally.

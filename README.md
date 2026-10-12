@@ -46,6 +46,8 @@ Favorite conversations you want to revisit. Hide projects or conversations to ti
 
 You can also export an individual conversation as Markdown or JSON.
 
+Delete a conversation with the trash button beside its visibility button, then confirm. This removes its local content, indexes, and raw records while leaving source files untouched. Incremental sync respects deletions across restarts; a full rescan can reimport deleted conversations from available sources. Projects disappear from navigation when their last conversation is deleted.
+
 ## Keep the history, even when the source changes
 
 Incremental sync skips unchanged files and collects new content while you keep reading. If a source file disappears, is truncated, or becomes unavailable, previously imported messages remain in your archive.

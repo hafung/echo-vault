@@ -127,3 +127,10 @@ body:has(#sources-dialog[open]) .backup-activity{display:none}
 .reader-jump:active{background:var(--line)}
 [data-theme=dark] .reader-navigation{box-shadow:0 5px 18px #0003}
 @media(max-width:680px){.reader-navigation{right:12px;bottom:12px}.reader-jump{width:40px;height:40px}}
+
+.delete-session-button:hover{color:#b64b3a;background:#b64b3a14}
+.button.danger{color:#fff;background:#b64b3a;border-color:#b64b3a}
+.button.danger:hover{background:#a33e2e}
+.delete-session-name{font-size:14px;font-weight:600;line-height:1.6;overflow-wrap:anywhere;margin:0 0 12px}
+#delete-session-dialog .local-path-actions{margin-top:24px}
+#delete-session-error{font-size:12px;color:#b64b3a;line-height:1.7;margin-top:16px}

@@ -1,11 +1,11 @@
 import './style.css';
-import { createElement, Search, Folder, MessagesSquare, Star, RefreshCw, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, X, Check, Download, Copy, SlidersHorizontal, Database, ShieldCheck, Terminal, PanelLeft, Moon, Sun, ArrowDown, ArrowUp, ArrowDownToLine, ArrowUpToLine, MoreHorizontal, FileText, Upload, CircleHelp, Monitor, Command, BookOpen, LoaderCircle, TextSearch, Layers, CheckCircle2, EyeOff, Eye } from 'lucide';
+import { createElement, Search, Folder, MessagesSquare, Star, RefreshCw, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, X, Check, Download, Copy, SlidersHorizontal, Database, ShieldCheck, Terminal, PanelLeft, Moon, Sun, ArrowDown, ArrowUp, ArrowDownToLine, ArrowUpToLine, MoreHorizontal, FileText, Upload, CircleHelp, Monitor, Command, BookOpen, LoaderCircle, TextSearch, Layers, CheckCircle2, EyeOff, Eye, Trash2 } from 'lucide';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { localPathTarget, barePathPattern } from './local-paths';
 
 type Node = Parameters<typeof createElement>[0];
-const icons: Record<string, Node> = { Search, Folder, MessagesSquare, Star, RefreshCw, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, X, Check, Download, Copy, SlidersHorizontal, Database, ShieldCheck, Terminal, PanelLeft, Moon, Sun, ArrowDown, ArrowUp, ArrowDownToLine, ArrowUpToLine, MoreHorizontal, FileText, Upload, CircleHelp, Monitor, Command, BookOpen, LoaderCircle, TextSearch, Layers, CheckCircle2, EyeOff, Eye };
+const icons: Record<string, Node> = { Search, Folder, MessagesSquare, Star, RefreshCw, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, X, Check, Download, Copy, SlidersHorizontal, Database, ShieldCheck, Terminal, PanelLeft, Moon, Sun, ArrowDown, ArrowUp, ArrowDownToLine, ArrowUpToLine, MoreHorizontal, FileText, Upload, CircleHelp, Monitor, Command, BookOpen, LoaderCircle, TextSearch, Layers, CheckCircle2, EyeOff, Eye, Trash2 };
 function icon(name: string, cls = '') { const svg = createElement(icons[name] || FileText); svg.setAttribute('class', 'icon ' + cls); svg.setAttribute('aria-hidden', 'true'); return svg.outerHTML; }
 function esc(value: unknown) { return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!); }
 function $(selector: string, root: ParentNode = document) { return root.querySelector<HTMLElement>(selector)!; }
@@ -82,6 +82,7 @@ $('#app').innerHTML = `
   <dialog id="info-dialog" class="info-dialog"><div class="dialog-heading"><h2>对话详情</h2><button class="icon-button" data-close-dialog aria-label="关闭">${icon('X')}</button></div><div id="info-content"></div></dialog>
   <dialog id="help-dialog" class="info-dialog"><div class="dialog-heading"><h2>让记忆触手可及</h2><button class="icon-button" data-close-dialog aria-label="关闭">${icon('X')}</button></div><div class="shortcut-list"><p><span>全局搜索</span><kbd>Ctrl / ⌘ K</kbd></p><p><span>当前对话搜索</span><kbd>Ctrl / ⌘ F</kbd></p><p><span>上下切换对话</span><kbd>↑ ↓</kbd></p><p><span>关闭面板 / 清除搜索</span><kbd>Esc</kbd></p><p class="muted">空格分隔多个关键词可交叉搜索；双引号表示完整短语。中文单字、双字同样可搜索。</p></div></dialog>
   <dialog id="local-path-dialog" class="info-dialog" aria-labelledby="local-path-title"><div class="dialog-heading"><h2 id="local-path-title">打开本地文件或文件夹</h2><button class="icon-button" data-close-dialog aria-label="关闭">${icon('X')}</button></div><p class="local-path-description">确认后将通过本机应用打开此路径。</p><code id="local-path-value"></code><p id="local-path-error" role="alert" hidden></p><div class="local-path-actions"><button id="local-path-cancel" class="button">取消</button><button id="local-path-reveal" class="button">${icon('Folder')}打开所在文件夹</button><button id="local-path-open" class="button primary">${icon('ArrowUpRight')}确认打开</button></div></dialog>
+  <dialog id="delete-session-dialog" class="info-dialog" aria-labelledby="delete-session-title" aria-describedby="delete-session-description"><div class="dialog-heading"><h2 id="delete-session-title">删除对话？</h2><button class="icon-button" data-close-dialog aria-label="关闭">${icon('X')}</button></div><p id="delete-session-name" class="delete-session-name"></p><p id="delete-session-description" class="local-path-description">将从本地档案中删除这段对话及其记录，原始来源文件保持不变。删除后不会通过增量同步重新收录；「完整重新扫描」可从仍可读取的来源重新收录。</p><p id="delete-session-error" role="alert" hidden></p><div class="local-path-actions"><button id="delete-session-cancel" class="button" autofocus>取消</button><button id="delete-session-confirm" class="button danger">${icon('Trash2')}确认删除</button></div></dialog>
   <div id="backup-activity" class="backup-activity" hidden role="status" aria-live="polite"></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>`;
 
@@ -98,6 +99,7 @@ function renderProjects() {
   $('#projects').querySelectorAll<HTMLButtonElement>('[data-project-visibility]').forEach(el => el.onclick = () => setVisibility('project', el.dataset.projectVisibility!, el.dataset.hidden !== '1'));
 }
 function clearReader() {
+  hitAbort?.abort(); state.localQuery = ''; state.hits = []; state.hitIndex = 0;
   readerAbort?.abort(); readerVersion++;
   state.id = ''; state.session = null; state.page = null; state.localSearchOpen = false;
   document.body.classList.remove('reading'); welcome();
@@ -117,6 +119,51 @@ async function setVisibility(kind: 'project' | 'session', value: string, hidden:
     toast(hidden ? '已隐藏，同步后仍保持隐藏' : '已恢复显示');
   } catch (error) { handle(error); }
 }
+let deletingSession: Session | null = null, deleteBusy = false;
+function confirmSessionDelete() {
+  if (!state.session || deleteBusy) return;
+  deletingSession = state.session;
+  $('#delete-session-name').textContent = deletingSession.title;
+  $('#delete-session-error').hidden = true;
+  (document.querySelector('#delete-session-dialog') as HTMLDialogElement).showModal();
+}
+async function deleteSession() {
+  if (!deletingSession || deleteBusy) return;
+  const session = deletingSession;
+  const dialog = document.querySelector('#delete-session-dialog') as HTMLDialogElement;
+  const button = $('#delete-session-confirm') as HTMLButtonElement;
+  deleteBusy = true;
+  dialog.querySelectorAll<HTMLButtonElement>('button').forEach(control => control.disabled = true);
+  button.setAttribute('aria-busy', 'true');
+  button.innerHTML = `${icon('LoaderCircle', 'spinning')}正在删除…`;
+  $('#delete-session-error').hidden = true;
+  try {
+    await post('/sessions/'+encodeURIComponent(session.id)+'/delete', {confirmed: true});
+    readerCache.clear();
+    listAbort?.abort(); listVersion++;
+    state.items = state.items.filter(s => s.id !== session.id);
+    if (state.id === session.id) clearReader();
+    saveUrl(); renderList();
+    dialog.close(); deletingSession = null;
+    toast('对话已删除，增量同步不会重新收录');
+    await refreshStats();
+    if (state.project && !state.stats?.projects_list.some(p => p.project === state.project)) state.project = '';
+    updateNav(); saveUrl(); await loadList();
+  } catch (error) {
+    if (dialog.open) {
+      $('#delete-session-error').textContent = error instanceof Error ? error.message : String(error);
+      $('#delete-session-error').hidden = false;
+    } else handle(error);
+  } finally {
+    deleteBusy = false;
+    dialog.querySelectorAll<HTMLButtonElement>('button').forEach(control => control.disabled = false);
+    button.removeAttribute('aria-busy');
+    button.innerHTML = `${icon('Trash2')}确认删除`;
+  }
+}
+$('#delete-session-cancel').onclick = () => (document.querySelector('#delete-session-dialog') as HTMLDialogElement).close();
+$('#delete-session-confirm').onclick = deleteSession;
+$('#delete-session-dialog').addEventListener('cancel', event => { if (deleteBusy) event.preventDefault(); });
 function renderVisibilityToggle() {
   const button = $('#show-hidden');
   button.innerHTML = icon(state.showHidden ? 'Eye' : 'EyeOff');
@@ -165,7 +212,7 @@ function renderList(append = false, appended = 35) {
   if ($('#load-more')) $('#load-more').onclick = () => loadList(true);
   if ($('#empty-reset')) $('#empty-reset').onclick = () => { state.q = ''; state.project = ''; state.favorite = false; input('#global-search').value = ''; resetFilters(); updateNav(); saveUrl(); loadList(); };
   $('#list-count').textContent = state.q ? `${state.items.length}${state.more ? '+' : ''}` : num(state.project ? state.stats?.projects_list.find(p => p.project === state.project)?.count || 0 : state.favorite ? state.stats?.favorites || 0 : state.stats?.sessions || 0);
-  $('#list-footer-text').textContent = state.items.length ? `已展示 ${num(state.items.length)} 段对话${state.more ? '' : ' · 已到底'} ` : '对话会一直保留在这里';
+  $('#list-footer-text').textContent = state.items.length ? `已展示 ${num(state.items.length)} 段对话${state.more ? '' : ' · 已到底'} ` : '同步或导入对话，开始收录';
 }
 async function loadList(append = false) {
   if (append && state.loading) return;
@@ -261,7 +308,7 @@ function renderReader(page: Page, around?: number) {
   state.session = page.session; state.page = page; const s = page.session;
   document.body.classList.add('reading');
   const offset = page.offset, end = offset + page.items.length;
-  $('#reader-content').innerHTML = `<header class="reader-header"><div class="reader-heading-top"><div class="reader-breadcrumb"><button id="back-list" class="icon-button" aria-label="返回对话列表">${icon('ChevronLeft')}</button><span>${icon('Folder')}${esc(s.project)}</span><i>/</i><span>${esc(s.provider)}<em>${esc(s.platform)}</em></span></div><div class="reader-actions"><button id="session-visibility" class="icon-button" title="${s.hidden ? '恢复对话' : '隐藏对话'}" aria-label="${s.hidden ? '恢复对话' : '隐藏对话'}">${icon(s.hidden ? 'Eye' : 'EyeOff')}</button><button id="session-favorite" class="icon-button ${s.favorite ? 'is-favorite' : ''}" title="${s.favorite ? '取消收藏' : '收藏对话'}" aria-label="${s.favorite ? '取消收藏' : '收藏对话'}">${icon('Star',s.favorite ? 'filled' : '')}</button><button id="session-search" class="icon-button" title="搜索当前对话" aria-label="搜索当前对话" aria-controls="local-search" aria-expanded="${state.localSearchOpen}">${icon('Search')}</button><details class="export-menu"><summary class="icon-button" title="导出对话" aria-label="导出对话">${icon('Download')}</summary><div class="export-popover"><a href="/api/sessions/${encodeURIComponent(s.id)}/export?format=md" download>${icon('FileText')}导出 Markdown</a><a href="/api/sessions/${encodeURIComponent(s.id)}/export?format=json" download>${icon('Database')}导出 JSON</a><a href="/api/sessions/${encodeURIComponent(s.id)}/export?format=raw" download>${icon('Terminal')}导出原始事件</a></div></details><button id="session-info" class="icon-button" title="对话详情" aria-label="对话详情">${icon('MoreHorizontal')}</button></div></div><h2>${esc(s.title)}</h2><div class="reader-meta"><span>${icon('MessagesSquare')}${num(s.message_count)} 条消息</span><i>·</i><span>${date(s.created,true)}</span>${s.model ? `<i>·</i><span class="model-name">${esc(s.model)}</span>` : ''}${s.hidden ? '<span class="phase-tag">已隐藏 / 归档</span>' : ''}${s.project_hidden ? '<span class="phase-tag">项目已隐藏</span>' : ''}${s.parent_id ? '<span class="phase-tag">子代理会话</span>' : ''}</div></header>
+  $('#reader-content').innerHTML = `<header class="reader-header"><div class="reader-heading-top"><div class="reader-breadcrumb"><button id="back-list" class="icon-button" aria-label="返回对话列表">${icon('ChevronLeft')}</button><span>${icon('Folder')}${esc(s.project)}</span><i>/</i><span>${esc(s.provider)}<em>${esc(s.platform)}</em></span></div><div class="reader-actions"><button id="session-visibility" class="icon-button" title="${s.hidden ? '恢复对话' : '隐藏对话'}" aria-label="${s.hidden ? '恢复对话' : '隐藏对话'}">${icon(s.hidden ? 'Eye' : 'EyeOff')}</button><button id="session-delete" class="icon-button delete-session-button" title="删除对话" aria-label="删除对话">${icon('Trash2')}</button><button id="session-favorite" class="icon-button ${s.favorite ? 'is-favorite' : ''}" title="${s.favorite ? '取消收藏' : '收藏对话'}" aria-label="${s.favorite ? '取消收藏' : '收藏对话'}">${icon('Star',s.favorite ? 'filled' : '')}</button><button id="session-search" class="icon-button" title="搜索当前对话" aria-label="搜索当前对话" aria-controls="local-search" aria-expanded="${state.localSearchOpen}">${icon('Search')}</button><details class="export-menu"><summary class="icon-button" title="导出对话" aria-label="导出对话">${icon('Download')}</summary><div class="export-popover"><a href="/api/sessions/${encodeURIComponent(s.id)}/export?format=md" download>${icon('FileText')}导出 Markdown</a><a href="/api/sessions/${encodeURIComponent(s.id)}/export?format=json" download>${icon('Database')}导出 JSON</a><a href="/api/sessions/${encodeURIComponent(s.id)}/export?format=raw" download>${icon('Terminal')}导出原始事件</a></div></details><button id="session-info" class="icon-button" title="对话详情" aria-label="对话详情">${icon('MoreHorizontal')}</button></div></div><h2>${esc(s.title)}</h2><div class="reader-meta"><span>${icon('MessagesSquare')}${num(s.message_count)} 条消息</span><i>·</i><span>${date(s.created,true)}</span>${s.model ? `<i>·</i><span class="model-name">${esc(s.model)}</span>` : ''}${s.hidden ? '<span class="phase-tag">已隐藏 / 归档</span>' : ''}${s.project_hidden ? '<span class="phase-tag">项目已隐藏</span>' : ''}${s.parent_id ? '<span class="phase-tag">子代理会话</span>' : ''}</div></header>
   <div id="local-search" class="local-search" ${state.localSearchOpen ? '' : 'hidden'}>${icon('TextSearch')}<input id="local-query" aria-label="搜索当前对话" placeholder="在这段对话中查找…" value="${esc(state.localQuery)}"><span id="hit-count"></span><button id="prev-hit" class="icon-button" title="上一个匹配" aria-label="上一个匹配">${icon('ChevronLeft')}</button><button id="next-hit" class="icon-button" title="下一个匹配" aria-label="下一个匹配">${icon('ChevronRight')}</button><button id="close-local-search" class="icon-button" aria-label="关闭对话搜索">${icon('X')}</button></div>
   <div class="reading-toolbar"><label class="checkbox"><input id="show-all" type="checkbox" ${state.all ? 'checked' : ''}>${icon('Layers')} 展示工具与上下文</label><div><button id="font-smaller" class="text-size" title="缩小字号" aria-label="缩小字号">A−</button><button id="font-larger" class="text-size" title="放大字号" aria-label="放大字号">A+</button></div></div>
   <div class="reader-body"><div id="message-scroll" class="message-scroll"><div id="messages" class="messages">${offset ? `<button id="previous-messages" class="message-page-button">${icon('ArrowUp')} 查看前面的消息 <span>还有 ${num(offset)} 条</span></button>` : '<div class="conversation-start"><span>对话开始</span></div>'}${page.items.map(renderMessage).join('') || '<div class="empty-list"><p>此会话尚无可展示的正文。可开启工具与上下文，或导出原始记录。</p></div>'}${page.more ? `<button id="next-messages" class="message-page-button">${icon('ArrowDown')} 继续阅读 <span>还有 ${num(page.total-end)} 条</span></button>` : '<div class="conversation-end"><span>这段记忆，已妥善保存。</span>'+icon('ShieldCheck')+'</div>'}</div></div><nav class="reader-navigation" aria-label="对话位置"><button id="go-start" class="reader-jump" title="回到开头" aria-label="回到开头" aria-controls="message-scroll">${icon('ArrowUpToLine')}</button><button id="go-end" class="reader-jump" title="前往末尾" aria-label="前往末尾" aria-controls="message-scroll">${icon('ArrowDownToLine')}</button></nav></div><div class="reader-footer"><span>${num(offset+1)} – ${num(end)} / ${num(page.total)} 条<span class="footer-faint"> · 按需加载</span></span><span>只读档案 ${icon('ShieldCheck')}</span></div>`;
@@ -305,6 +352,7 @@ function bindReader() {
   $('#back-list').onclick = () => { document.body.classList.remove('reading'); state.id = ''; state.session = null; state.page = null; saveUrl(); welcome(); document.querySelectorAll('.conversation-card').forEach(el => el.classList.remove('selected')); };
   $('#session-favorite').onclick = () => favorite();
   $('#session-visibility').onclick = () => setVisibility('session', state.id, !state.session!.hidden);
+  $('#session-delete').onclick = confirmSessionDelete;
   $('#session-search').onclick = () => state.localSearchOpen ? closeLocalSearch() : showLocalSearch();
   $('#close-local-search').onclick = closeLocalSearch;
   input('#local-query').addEventListener('input',debounce(() => { if (!state.localSearchOpen || !input('#local-query')) return; state.localQuery = input('#local-query').value.trim(); findHits(); },160));
@@ -392,10 +440,10 @@ async function sourcesDialog(open = true) {
           <div id="restore-progress" class="backup-progress" hidden role="status" aria-live="polite"></div>
         </section>
       </div>
-      <div class="sources-footer"><div class="preservation-note">${icon('ShieldCheck')}<div><b>原记录只读，历史永久保留</b><p>同步只新增或更新；原文件删除、会话归档或来源断开，已收录的记录仍保留。</p></div></div><button id="full-sync" class="text-button">${icon('RefreshCw')}完整重新扫描</button></div>`;
+      <div class="sources-footer"><div class="preservation-note">${icon('ShieldCheck')}<div><b>原记录只读，档案由你管理</b><p>原文件删除、会话归档或来源断开，档案仍保留；主动删除的对话仅在完整重新扫描时可重新收录。</p></div></div><button id="full-sync" class="text-button">${icon('RefreshCw')}完整重新扫描</button></div>`;
     $('#add-source-form').onsubmit=async e=>{e.preventDefault();try{await post('/sources',{path:input('#source-path').value});toast('来源已添加，点击同步收录记录');await sourcesDialog(false);}catch(error){handle(error);}};
     input('#import-file').onchange=async()=>{const file=input('#import-file').files?.[0];if(!file)return;try{toast('正在导入 '+file.name);await api('/import',{method:'POST',headers:{'X-Echo-Request':'1','X-Filename':encodeURIComponent(file.name)},body:file});toast('文件已导入，正在收录对话');pollSync();}catch(error){handle(error);}};
-    $('#full-sync').onclick=()=>startSync(true);
+    $('#full-sync').onclick=()=>{if(window.confirm('完整重新扫描会重新收录已删除的对话（原始来源仍可读取时）。继续扫描？'))startSync(true);};
     $('#backup-link').onclick=()=>startArchiveBackup('download');
     $('#restore-path-form').onsubmit=e=>{e.preventDefault();startArchiveRestore();};
     input('#restore-file').onchange=()=>{const file=input('#restore-file').files?.[0];if(file)startArchiveRestore(file);};
@@ -554,7 +602,7 @@ $('#sources-button').onclick=()=>sourcesDialog();$('#sync-button').onclick=()=>s
 $('#theme').onclick=()=>{const theme=document.documentElement.dataset.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=theme;localStorage.setItem('echo-theme',theme);$('#theme').innerHTML=icon(theme==='dark'?'Sun':'Moon');};
 $('#theme').innerHTML=icon(document.documentElement.dataset.theme==='dark'?'Sun':'Moon');
 $('#mobile-menu').onclick=()=>document.body.classList.toggle('nav-open');$('.sidebar-scrim').onclick=closeSidebar;
-document.querySelectorAll<HTMLDialogElement>('dialog').forEach(dialog=>{dialog.querySelector('[data-close-dialog]')!.addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}});});
+document.querySelectorAll<HTMLDialogElement>('dialog').forEach(dialog=>{dialog.querySelector('[data-close-dialog]')!.addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(dialog.id==='delete-session-dialog'&&deleteBusy)return;if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}});});
 document.addEventListener('keydown',e=>{
   const editing=(e.target as HTMLElement).matches('input,textarea,select,[contenteditable]');
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();input('#global-search').focus();input('#global-search').select();}

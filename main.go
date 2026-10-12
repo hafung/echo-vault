@@ -262,6 +262,16 @@ func (a *App) post(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) == 4 && parts[0] == "api" && parts[1] == "sessions" && parts[3] == "delete" {
+		if v["confirmed"] != true {
+			return errors.New("请确认删除此对话")
+		}
+		if err := a.Store.deleteSession(r.Context(), parts[2]); err != nil {
+			return err
+		}
+		jsonResponse(w, M{"ok": true})
+		return nil
+	}
 	if len(parts) == 4 && parts[0] == "api" && parts[1] == "sessions" && parts[3] == "visibility" {
 		if _, err := one(a.Store.DB, "SELECT id FROM sessions WHERE id=?", parts[2]); err != nil {
 			return err

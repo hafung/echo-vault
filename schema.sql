@@ -4,6 +4,7 @@ CREATE INDEX IF NOT EXISTS sessions_recent ON sessions(updated DESC,id);
 CREATE INDEX IF NOT EXISTS sessions_project ON sessions(project,updated DESC,id);
 CREATE TABLE IF NOT EXISTS hidden_projects(project TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS session_visibility(session_id TEXT PRIMARY KEY REFERENCES sessions(id),hidden INTEGER NOT NULL CHECK(hidden IN (0,1)));
+CREATE TABLE IF NOT EXISTS deleted_sessions(session_id TEXT PRIMARY KEY,deleted REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY,session_id TEXT NOT NULL REFERENCES sessions(id),identity TEXT NOT NULL,position INTEGER NOT NULL,role TEXT NOT NULL,kind TEXT NOT NULL,phase TEXT NOT NULL DEFAULT '',timestamp REAL NOT NULL,body BLOB NOT NULL,body_hash TEXT NOT NULL,preview TEXT NOT NULL,metadata TEXT NOT NULL DEFAULT '{}',UNIQUE(session_id,identity));
 CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id,position,id);
 CREATE INDEX IF NOT EXISTS messages_role ON messages(session_id,role,position,id);

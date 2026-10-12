@@ -39,6 +39,8 @@ type Store struct {
 	Write         *sql.DB
 	Path          string
 	DialogueIndex bool
+	// Imports span multiple transactions; deletion must wait until a source finishes.
+	importMu sync.Mutex
 }
 
 var errNotFound = errors.New("记录不存在")

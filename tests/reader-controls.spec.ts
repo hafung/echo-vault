@@ -9,6 +9,8 @@ async function openReader(page: Page, count: number) {
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.pathname === '/api/stats') return route.fulfill({ json: { sessions: 1, messages: count, events: count + 10, projects: 1, favorites: 0, projects_list: [{ project: '测试项目', count: 1 }], platforms: [], providers: [], last_sync: 1, db_bytes: 1, raw_bytes: 1 } });
+    if (url.pathname === '/api/backup/status') return route.fulfill({ json: { directory: '', job: null } });
+    if (url.pathname === '/api/restore/status') return route.fulfill({ json: { job: null } });
     if (url.pathname === '/api/sync') return route.fulfill({ json: { running: false, done: 0, total: 0, errors: [], warnings: [] } });
     if (url.pathname === '/api/sessions') return route.fulfill({ json: { items: [session], more: false, offset: 1 } });
     if (url.pathname.endsWith('/hits')) return route.fulfill({ json: [{ id: count, role: 'assistant', preview: '可搜索' }] });
@@ -88,7 +90,9 @@ for (const count of [8, 95]) {
       expect(nav!.x + nav!.width).toBeLessThan(body!.x + body!.width);
       expect(nav!.y + nav!.height).toBeLessThan(body!.y + body!.height);
       await page.screenshot({ path: `artifacts/reader-controls-${count}-${viewport.width}.png` });
+      if (viewport.width < 680) await page.locator('#mobile-menu').click();
       await page.locator('#theme').click();
+      if (viewport.width < 680) await page.keyboard.press('Escape');
     }
   });
 }
