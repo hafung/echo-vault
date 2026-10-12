@@ -1,0 +1,29 @@
+node_modules/
+dist/
+data/*
+!data/.gitkeep
+__pycache__/
+test-results/
+playwright-report/
+.venv/
+bin/
+artifacts/
+
+# Local archives, source exports, and credentials
+*.sqlite
+*.sqlite-*
+*.sqlite.zst
+*.db
+*.db-*
+*.partial
+conversations.json
+.env
+.env.*
+!.env.example
+.aws/
+.codex/
+.agents/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
