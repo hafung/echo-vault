@@ -31,18 +31,19 @@ type Issue struct {
 	Error string `json:"error"`
 }
 type SyncStatus struct {
-	Running  bool    `json:"running"`
-	Stage    string  `json:"stage"`
-	Done     int     `json:"done"`
-	Total    int     `json:"total"`
-	Imported int     `json:"imported"`
-	Skipped  int     `json:"skipped"`
-	Errors   []Issue `json:"errors"`
-	Warnings []Issue `json:"warnings"`
-	File     string  `json:"file"`
-	Started  float64 `json:"started"`
-	Finished float64 `json:"finished"`
-	Duration float64 `json:"duration"`
+	Running   bool    `json:"running"`
+	Automatic bool    `json:"automatic"`
+	Stage     string  `json:"stage"`
+	Done      int     `json:"done"`
+	Total     int     `json:"total"`
+	Imported  int     `json:"imported"`
+	Skipped   int     `json:"skipped"`
+	Errors    []Issue `json:"errors"`
+	Warnings  []Issue `json:"warnings"`
+	File      string  `json:"file"`
+	Started   float64 `json:"started"`
+	Finished  float64 `json:"finished"`
+	Duration  float64 `json:"duration"`
 }
 type Importer struct {
 	Store *Store
@@ -88,15 +89,35 @@ func (i *Importer) issue(path string, err error, warning bool) {
 		}
 	})
 }
-func (i *Importer) start(full bool) bool {
-	i.mu.Lock()
-	if i.state.Running {
-		i.mu.Unlock()
+
+const automaticSyncInterval = 5 * 60 // Seconds; shared by every open page.
+
+func (i *Importer) start(full bool) bool { return i.startSync(full, false) }
+
+func (i *Importer) startSync(full, automatic bool) bool {
+	if !i.claimSync(automatic, now()) {
 		return false
 	}
-	i.state = SyncStatus{Running: true, Stage: "discover", Started: now(), Errors: []Issue{}, Warnings: []Issue{}}
-	i.mu.Unlock()
-	go i.run(full)
+	go i.run(full && !automatic)
+	return true
+}
+
+func (i *Importer) claimSync(automatic bool, timestamp float64) bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.state.Running {
+		return false
+	}
+	if automatic {
+		last := i.state.Finished
+		if i.state.Started > last {
+			last = i.state.Started
+		}
+		if last > 0 && timestamp-last < automaticSyncInterval {
+			return false
+		}
+	}
+	i.state = SyncStatus{Running: true, Automatic: automatic, Stage: "discover", Started: timestamp, Errors: []Issue{}, Warnings: []Issue{}}
 	return true
 }
 func localPath(value string) string {
@@ -141,6 +162,7 @@ func (i *Importer) sources() ([]Source, error) {
 			candidates = append(candidates, glob(pattern)...)
 		}
 	}
+	candidates = append(candidates, desktopCachePaths()...)
 	if row, err := one(i.Store.DB, "SELECT value FROM settings WHERE key='sources'"); err == nil {
 		var configured []string
 		if err = json.Unmarshal([]byte(str(row["value"])), &configured); err != nil {
@@ -163,7 +185,9 @@ func (i *Importer) sources() ([]Source, error) {
 			platform = "Windows"
 		}
 		kind := "ChatGPT"
-		if stat, err := os.Stat(path); err == nil && stat.IsDir() && (filepath.Base(path) == ".codex" || exists(filepath.Join(path, "sessions")) || len(glob(filepath.Join(path, "state_*.sqlite"))) > 0) {
+		if isDesktopCache(path) {
+			kind = desktopCacheKind
+		} else if stat, err := os.Stat(path); err == nil && stat.IsDir() && (filepath.Base(path) == ".codex" || exists(filepath.Join(path, "sessions")) || len(glob(filepath.Join(path, "state_*.sqlite"))) > 0) {
 			kind = "Codex"
 		}
 		sources = append(sources, Source{path, platform, exists(path), kind})
@@ -282,6 +306,7 @@ func (i *Importer) run(full bool) {
 	}
 	rollouts := []rolloutFile{}
 	dbs := []rolloutFile{}
+	caches := []Source{}
 	exports := []string{}
 	metadata := map[string]M{}
 	for _, source := range sources {
@@ -290,7 +315,9 @@ func (i *Importer) run(full bool) {
 			i.issue(root, errors.New("来源暂不可用，已有历史继续保留"), true)
 			continue
 		}
-		if source.Kind == "Codex" {
+		if source.Kind == desktopCacheKind {
+			caches = append(caches, source)
+		} else if source.Kind == "Codex" {
 			states := glob(filepath.Join(root, "state_*.sqlite"))
 			sort.Sort(sort.Reverse(sort.StringSlice(states)))
 			if len(states) > 0 {
@@ -385,7 +412,10 @@ func (i *Importer) run(full bool) {
 	exports = dedup
 	sort.Slice(rollouts, func(a, b int) bool { return rollouts[a].path < rollouts[b].path })
 	sort.Strings(exports)
-	i.update(func(s *SyncStatus) { s.Total = len(rollouts) + len(dbs) + len(exports); s.Stage = "rollouts" })
+	i.update(func(s *SyncStatus) {
+		s.Total = len(rollouts) + len(dbs) + len(exports) + len(caches)
+		s.Stage = "rollouts"
+	})
 	if files, e := query(i.Store.DB, "SELECT path FROM files"); e == nil {
 		for _, f := range files {
 			p := str(f["path"])
@@ -419,6 +449,14 @@ func (i *Importer) run(full bool) {
 		i.update(func(s *SyncStatus) { s.File = filepath.Base(p) })
 		if e := i.chatgpt(p, full); e != nil {
 			i.issue(p, e, false)
+		}
+		i.update(func(s *SyncStatus) { s.Done++ })
+	}
+	i.update(func(s *SyncStatus) { s.Stage = "chatgpt_desktop" })
+	for _, source := range caches {
+		i.update(func(s *SyncStatus) { s.File = "ChatGPT Desktop 缓存" })
+		if e := i.desktopChatGPT(source, full); e != nil {
+			i.issue(source.Path, e, false)
 		}
 		i.update(func(s *SyncStatus) { s.Done++ })
 	}
@@ -1094,91 +1132,11 @@ func (i *Importer) chatgpt(path string, full bool) error {
 		if _, ok := c["mapping"]; !ok {
 			return errors.New("导出记录缺少 mapping")
 		}
-		sid := "chatgpt:" + str(first(c["id"], c["conversation_id"], hash([]byte(jsonText(c)))))
-		nodes := obj(c["mapping"])
-		active := map[string]bool{}
-		cursor := str(c["current_node"])
-		for cursor != "" && nodes[cursor] != nil && !active[cursor] {
-			active[cursor] = true
-			cursor = str(obj(nodes[cursor])["parent"])
-		}
-		tx, e := i.Store.Write.Begin()
+		n, e := i.chatgptConversation(c, path, stat.ModTime().UnixNano(), full, "云端导出", nil)
 		if e != nil {
 			return e
 		}
-		allowed, e := importSession(tx, sid, full)
-		if e != nil {
-			tx.Rollback()
-			return e
-		}
-		if !allowed {
-			tx.Rollback()
-			i.update(func(s *SyncStatus) { s.Skipped++ })
-			continue
-		}
-		e = i.Store.session(tx, sid, M{"title": str(first(c["title"], "ChatGPT 对话")), "project": "ChatGPT", "platform": "云端导出", "provider": "ChatGPT", "created": stamp(c["create_time"]), "updated": stamp(c["update_time"]), "metadata": jsonText(M{"current_node": c["current_node"], "branch_count": len(nodes)})})
-		if e != nil {
-			tx.Rollback()
-			return e
-		}
-		ids := []string{}
-		for id := range nodes {
-			ids = append(ids, id)
-		}
-		sort.SliceStable(ids, func(a, b int) bool {
-			ta := stamp(obj(obj(nodes[ids[a]])["message"])["create_time"])
-			tb := stamp(obj(obj(nodes[ids[b]])["message"])["create_time"])
-			if ta == tb {
-				return ids[a] < ids[b]
-			}
-			return ta < tb
-		})
-		for pos, nid := range ids {
-			node := obj(nodes[nid])
-			m := obj(node["message"])
-			if len(m) == 0 {
-				continue
-			}
-			role := str(obj(m["author"])["role"])
-			if role != "user" && role != "assistant" && role != "tool" {
-				role = "context"
-			}
-			content := obj(m["content"])
-			body := textContent(content["parts"])
-			if body == "" {
-				body = str(content["text"])
-			}
-			assets, e := i.assets(tx, content["parts"], nil)
-			if e != nil {
-				tx.Rollback()
-				return e
-			}
-			meta := M{"branch": len(active) > 0 && !active[nid], "parent": node["parent"], "assets": assets, "node_id": nid}
-			changed, e := i.Store.message(tx, sid, "node:"+nid, int64(pos), role, body, stamp(m["create_time"]), str(first(content["content_type"], "message")), str(obj(m["metadata"])["phase"]), meta)
-			if e != nil {
-				tx.Rollback()
-				return e
-			}
-			if changed {
-				added++
-			}
-		}
-		raw := []byte(jsonText(c) + "\n")
-		if e = i.Store.addRaw(tx, path+"::"+sid, sid, stat.ModTime().UnixNano(), 0, int64(len(raw)), raw); e != nil {
-			tx.Rollback()
-			return e
-		}
-		if _, e = tx.Exec("INSERT INTO files(path,session_id,mode,last_sync) VALUES (?,?,'chatgpt_node',?) ON CONFLICT(path) DO UPDATE SET last_sync=excluded.last_sync,missing=0", path+"::"+sid, sid, now()); e != nil {
-			tx.Rollback()
-			return e
-		}
-		if e = i.Store.recount(tx, sid); e != nil {
-			tx.Rollback()
-			return e
-		}
-		if e = tx.Commit(); e != nil {
-			return e
-		}
+		added += n
 	}
 	if _, err = decoder.Token(); err != nil {
 		return err
@@ -1186,4 +1144,157 @@ func (i *Importer) chatgpt(path string, full bool) error {
 	_, err = i.Store.Write.Exec("INSERT INTO files(path,size,mtime,mode,last_sync) VALUES (?,?,?,'chatgpt',?) ON CONFLICT(path) DO UPDATE SET size=excluded.size,mtime=excluded.mtime,last_sync=excluded.last_sync,missing=0", path, stat.Size(), stat.ModTime().UnixNano(), now())
 	i.update(func(s *SyncStatus) { s.Imported += added })
 	return err
+}
+
+func (i *Importer) chatgptConversation(c M, path string, generation int64, full bool, platform string, original []byte) (int, error) {
+	if _, ok := c["mapping"]; !ok {
+		messages, ok := c["messages"].([]any)
+		if !ok {
+			return 0, errors.New("ChatGPT 缓存缺少 mapping 或 messages")
+		}
+		nodes := M{}
+		previous := ""
+		for _, value := range messages {
+			m := obj(value)
+			id := str(m["id"])
+			if id == "" {
+				return 0, errors.New("ChatGPT 缓存消息缺少 ID")
+			}
+			parent := first(obj(m["metadata"])["parent_id"], previous)
+			nodes[id] = M{"message": m, "parent": parent}
+			previous = id
+		}
+		c["mapping"] = nodes
+		if nodes[str(c["current_node"])] == nil {
+			c["current_node"] = previous
+		}
+	}
+	added := 0
+	sid := "chatgpt:" + str(first(c["id"], c["conversation_id"], hash([]byte(jsonText(c)))))
+	nodes := obj(c["mapping"])
+	active := map[string]bool{}
+	cursor := str(c["current_node"])
+	for cursor != "" && nodes[cursor] != nil && !active[cursor] {
+		active[cursor] = true
+		cursor = str(obj(nodes[cursor])["parent"])
+	}
+	tx, e := i.Store.Write.Begin()
+	if e != nil {
+		return 0, e
+	}
+	defer tx.Rollback()
+	allowed, e := importSession(tx, sid, full)
+	if e != nil {
+		tx.Rollback()
+		return 0, e
+	}
+	if !allowed {
+		tx.Rollback()
+		i.update(func(s *SyncStatus) { s.Skipped++ })
+		return 0, nil
+	}
+	staleCache := false
+	if original != nil && stamp(c["update_time"]) > 0 {
+		if previous, err := one(tx, "SELECT updated,title,model FROM sessions WHERE id=?", sid); err == nil && number(previous["updated"]) > stamp(c["update_time"]) {
+			staleCache = true
+			c["title"], c["default_model_slug"] = previous["title"], previous["model"]
+		}
+	}
+	e = i.Store.session(tx, sid, M{"title": str(first(c["title"], "ChatGPT 对话")), "project": "ChatGPT", "platform": platform, "provider": "ChatGPT", "created": stamp(c["create_time"]), "updated": stamp(c["update_time"]), "model": str(c["default_model_slug"]), "metadata": jsonText(M{"current_node": c["current_node"], "branch_count": len(nodes), "desktop_cache": original != nil, "cache_partial": obj(c["page_info"])["has_previous_page"] == true || obj(c["page_info"])["has_next_page"] == true})})
+	if e != nil {
+		tx.Rollback()
+		return 0, e
+	}
+	ids := []string{}
+	for id := range nodes {
+		ids = append(ids, id)
+	}
+	sort.SliceStable(ids, func(a, b int) bool {
+		ta := stamp(obj(obj(nodes[ids[a]])["message"])["create_time"])
+		tb := stamp(obj(obj(nodes[ids[b]])["message"])["create_time"])
+		if ta == tb {
+			return ids[a] < ids[b]
+		}
+		return ta < tb
+	})
+	for pos, nid := range ids {
+		if staleCache {
+			if _, err := one(tx, "SELECT id FROM messages WHERE session_id=? AND identity=?", sid, "node:"+nid); err == nil {
+				continue
+			} else if !errors.Is(err, errNotFound) {
+				return 0, err
+			}
+		}
+		node := obj(nodes[nid])
+		m := obj(node["message"])
+		if len(m) == 0 {
+			continue
+		}
+		role := str(obj(m["author"])["role"])
+		if role != "user" && role != "assistant" && role != "tool" {
+			role = "context"
+		}
+		content := obj(m["content"])
+		if role == "assistant" && (str(content["content_type"]) == "thoughts" || str(content["content_type"]) == "reasoning_recap") {
+			role = "reasoning"
+		}
+		if obj(m["metadata"])["is_visually_hidden_from_conversation"] == true {
+			role = "context"
+		}
+		body := textContent(content["parts"])
+		if body == "" {
+			body = str(content["text"])
+		}
+		if body == "" {
+			body = textContent(content["content"])
+		}
+		if body == "" {
+			for _, thought := range array(content["thoughts"]) {
+				if t := str(first(obj(thought)["content"], obj(thought)["summary"], textContent(thought))); t != "" {
+					if body != "" {
+						body += "\n"
+					}
+					body += t
+				}
+			}
+		}
+		assets, e := i.assets(tx, content["parts"], nil)
+		if e != nil {
+			tx.Rollback()
+			return 0, e
+		}
+		meta := M{"branch": len(active) > 0 && !active[nid], "parent": node["parent"], "assets": assets, "node_id": nid}
+		changed, e := i.Store.message(tx, sid, "node:"+nid, int64(pos), role, body, stamp(m["create_time"]), str(first(content["content_type"], "message")), str(obj(m["metadata"])["phase"]), meta)
+		if e != nil {
+			tx.Rollback()
+			return 0, e
+		}
+		if changed {
+			added++
+		}
+	}
+	raw := original
+	if raw == nil {
+		raw = []byte(jsonText(c) + "\n")
+	}
+	if e = i.Store.addRaw(tx, path+"::"+sid, sid, generation, 0, int64(len(raw)), raw); e != nil {
+		tx.Rollback()
+		return 0, e
+	}
+	if _, e = tx.Exec("INSERT INTO files(path,session_id,mode,last_sync) VALUES (?,?,'chatgpt_node',?) ON CONFLICT(path) DO UPDATE SET last_sync=excluded.last_sync,missing=0", path+"::"+sid, sid, now()); e != nil {
+		tx.Rollback()
+		return 0, e
+	}
+	if _, e = tx.Exec("WITH ordered AS (SELECT id,row_number() OVER (ORDER BY timestamp,id)-1 AS pos FROM messages WHERE session_id=?) UPDATE messages SET position=(SELECT pos FROM ordered WHERE ordered.id=messages.id) WHERE session_id=?", sid, sid); e != nil {
+		tx.Rollback()
+		return 0, e
+	}
+	if e = i.Store.recount(tx, sid); e != nil {
+		tx.Rollback()
+		return 0, e
+	}
+	if e = tx.Commit(); e != nil {
+		return 0, e
+	}
+	return added, nil
 }

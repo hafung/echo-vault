@@ -14,6 +14,10 @@ pnpm start
 
 The frontend is embedded in the executable. Once built, `./bin/echo-vault` runs without the frontend build directory or any development tools. By default, it serves `http://localhost:8765` and stores the archive at `data/echo.sqlite`, relative to the working directory.
 
+On Windows, double-click `Start Echo Vault.cmd` in Explorer, or create a desktop shortcut to it. WSL UNC paths select the corresponding distribution and Linux project directory; ordinary Windows directories use `bin\echo-vault.exe`. Minimize the launcher window to keep the service running. On Linux / WSL, run `bash scripts/start-echo-vault.sh`. The executable's `--open-browser` option opens the browser after startup and reuses a running Echo Vault service. The launchers do not install dependencies, build the app, or configure login startup.
+
+For a new service, the launcher stays open and can be minimized. Launching again opens the existing page and exits the new launcher without stopping the service. Failures pause the window to show the error. CMD may initially report that a WSL UNC current directory is unsupported; the launcher uses absolute script paths and `wsl.exe --cd`, so this does not prevent startup. It clears that initial notice and shows the launcher behavior instead.
+
 ```bash
 ./bin/echo-vault --port 8765 --data /path/to/echo.sqlite
 ```
@@ -28,6 +32,8 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 GOTOOLCHAIN=local go build -buildvcs=fal
 
 ## Sources and preservation
 
+While a page remains open, an incremental sync starts about five minutes after the previous sync finishes. Opening or returning to the page also checks whether a sync is due. Server-side timing is shared across tabs, and running syncs do not overlap; manual sync remains available. Automatic completion refreshes the list and counts without a success toast. Closing every page prevents further automatic runs; a running sync continues to completion. Browser suspension and computer sleep can delay timers; returning to the page checks for an overdue sync. Frequent collection reduces the chance of losing Desktop Chat cache entries before import, but cannot recover entries already evicted.
+
 - Codex discovery includes the current user's home, `CODEX_HOME`, readable WSL user directories, mounted Windows user directories, and accessible mounted WSL distributions. Additional sources can be configured in the app.
 - Both `sessions` and `archived_sessions` are scanned. `session_index.jsonl`, `state_*.sqlite`, and newer `thread_history*.sqlite` files supply metadata and history.
 - Older `response_item`, newer `item_completed`, and mixed JSONL formats are supported. Stable IDs and adjacent mirrored content remove duplicate representations while retaining real repeated questions.
@@ -36,7 +42,9 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 GOTOOLCHAIN=local go build -buildvcs=fal
 - Checkpoints, imported content, and raw blocks commit together. Unchanged files are skipped; appended files resume after prefix and checkpoint checks. A full scan rechecks file contents.
 - Deleting or truncating a source, losing access to it, or removing nodes from a ChatGPT export does not delete previously imported messages. Updates may change the current view while preserving earlier imported raw event versions.
 - Embedded images and readable local images are copied into the archive and deduplicated. Missing attachments retain their references. Remote image URLs are not fetched automatically.
-- ChatGPT imports accept `conversations.json` or a ZIP containing it. All branches are retained; non-current branches are marked. There is no ChatGPT cloud connection, and conversations absent from the export cannot be recovered from it.
+- Windows ChatGPT Desktop Chat response caches are discovered automatically, including Windows profiles mounted in WSL. The Chromium blockfile active index is read without modifying the cache; only ChatGPT conversation response bodies are decoded, supporting Brotli, gzip, deflate and uncompressed JSON. Selected entry and response bytes are checked twice; incomplete or changing entries report a warning and retry on the next sync. You can also add the `…\Default\Cache\Cache_Data` directory manually.
+- Both full `mapping` responses and paginated `messages` are supported. Pages merge by stable message ID and messages are ordered by time. Cache entries may expire, be evicted, or contain only recent pages and omit other branches. Open the conversation and scroll back in Desktop before syncing to collect additional cached pages. Imported messages and original response JSON survive cache eviction; titles alone are never treated as conversation bodies. Authentication files and cookies are not read.
+- Official ChatGPT imports accept `conversations.json` or a ZIP containing it. All exported branches are retained; non-current branches are marked. Exports merge with Desktop cache imports by conversation and message ID. There is no ChatGPT cloud connection; content that was neither exported nor cached cannot be recovered from a local conversation index.
 
 When running in WSL, Windows paths such as `C:\Users\you\.codex` and `D:\exports\conversations.json` are converted to mounted paths. Other WSL distributions must be made readable first.
 

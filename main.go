@@ -122,12 +122,15 @@ func (a *App) get(w http.ResponseWriter, r *http.Request) error {
 	case "/api/sync":
 		jsonResponse(w, a.Importer.status())
 		return nil
+	case "/api/health":
+		jsonResponse(w, M{"app": "echo-vault"})
+		return nil
 	case "/api/sources":
 		v, e := a.Importer.sources()
 		if e != nil {
 			return e
 		}
-		jsonResponse(w, M{"sources": v, "chatgpt": "可导入官方导出 JSON / ZIP，保留全部对话分支。"})
+		jsonResponse(w, M{"sources": v, "chatgpt": "自动收录 Windows 桌面应用 Chat 正文缓存；完整历史可通过官方 JSON / ZIP 导出补充。"})
 		return nil
 	case "/api/backup":
 		return a.backup(w, r)
@@ -234,7 +237,7 @@ func (a *App) post(w http.ResponseWriter, r *http.Request) error {
 		}
 		return a.startRestore(w, r, str(v["path"]))
 	case "/api/sync":
-		jsonResponse(w, M{"started": a.Importer.start(v["full"] == true)})
+		jsonResponse(w, M{"started": a.Importer.startSync(v["full"] == true, v["automatic"] == true)})
 		return nil
 	case "/api/sources":
 		if err := a.Importer.addSource(str(v["path"])); err != nil {
@@ -448,6 +451,7 @@ func (a *App) static(w http.ResponseWriter, r *http.Request) error {
 
 func main() {
 	port := flag.Int("port", 8765, "本机端口")
+	openBrowser := flag.Bool("open-browser", false, "启动后打开浏览器；已有服务时仅打开页面")
 	data := flag.String("data", "data/echo.sqlite", "独立档案数据库路径")
 	syncOnly := flag.Bool("sync-only", false, "同步后退出")
 	full := flag.Bool("full", false, "重新读取全部来源")
@@ -457,6 +461,15 @@ func main() {
 	dialogue := flag.Bool("index-dialogue", false, "构建独立的正文检索索引后退出")
 	restore := flag.String("restore", "", "从 SQLite 或 .sqlite.zst 完整备份恢复到 --data 指定的新文件，然后退出")
 	flag.Parse()
+	browserURL := fmt.Sprintf("http://localhost:%d", *port)
+	maintenance := *syncOnly || *restore != "" || *reindex || *compact || *deduplicate || *dialogue
+	if *openBrowser && !maintenance && echoVaultRunning(browserURL) {
+		log.Printf("Echo Vault 已在运行，打开 %s；此启动窗口将退出", browserURL)
+		if err := openArchiveBrowser(browserURL); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	if *restore != "" {
 		if err := restoreArchive(context.Background(), localPath(*restore), localPath(*data), nil); err != nil {
 			log.Fatal(err)
@@ -531,6 +544,16 @@ func main() {
 	defer app.backups.close()
 	defer app.restores.close()
 	server := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", *port), Handler: app, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		if *openBrowser && echoVaultRunning(browserURL) {
+			if err := openArchiveBrowser(browserURL); err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
+		log.Fatal(err)
+	}
 	stopped := make(chan os.Signal, 1)
 	signal.Notify(stopped, os.Interrupt, syscall.SIGTERM)
 	go func() {
@@ -540,7 +563,10 @@ func main() {
 		server.Shutdown(ctx)
 	}()
 	log.Printf("回声 → http://localhost:%d", *port)
-	if err = server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if *openBrowser {
+		go openArchiveBrowser(browserURL)
+	}
+	if err = server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
 }

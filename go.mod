@@ -3,6 +3,7 @@ module echo-vault
 go 1.26.0
 
 require (
+	github.com/andybalholm/brotli v1.1.1
 	github.com/klauspost/compress v1.18.7
 	modernc.org/sqlite v1.60.1
 )

@@ -25,7 +25,7 @@ interface Session { id: string; title: string; project: string; cwd: string; pro
 interface Message { id: number; role: string; kind: string; phase: string; timestamp: number; body: string; truncated: boolean; length: number; metadata: { branch?: boolean; assets?: (string | { reference: string })[] } }
 interface Page { session: Session; items: Message[]; offset: number; total: number; more: boolean }
 interface Stats { sessions: number; messages: number; events: number; projects: number; favorites: number; projects_list: { project: string; count: number; updated: number; hidden: number }[]; platforms: { platform: string; count: number }[]; providers: { provider: string; count: number }[]; last_sync: number; db_bytes: number; raw_bytes: number }
-interface Sync { running: boolean; stage: string; done: number; total: number; imported: number; skipped: number; errors: { path: string; error: string }[]; warnings: { path: string; error: string }[]; duration?: number; finished?: number; file: string }
+interface Sync { running: boolean; automatic?: boolean; stage: string; done: number; total: number; imported: number; skipped: number; errors: { path: string; error: string }[]; warnings: { path: string; error: string }[]; duration?: number; started?: number; finished?: number; file: string }
 interface BackupJob { id: string; mode: 'local' | 'download'; stage: 'copying' | 'compressing' | 'finishing' | 'ready' | 'error' | 'expired'; started: number; duration: number; done_bytes: number; total_bytes: number; path?: string; error?: string; format?: string; input_bytes?: number; output_bytes?: number }
 interface BackupStatus { directory: string; job: BackupJob | null }
 let backupState: BackupStatus | null = null, backupStarting = false, backupPolling = false;
@@ -35,6 +35,9 @@ const url = new URL(location.href);
 const state = { q: url.searchParams.get('q') || '', project: url.searchParams.get('project') || '', favorite: url.searchParams.get('favorite') === '1', platform: url.searchParams.get('platform') || '', provider: '', sort: 'recent', from: '', to: '', all: false, showHidden: url.searchParams.get('hidden') === '1', id: url.searchParams.get('session') || '', items: [] as Session[], more: false, offset: 0, loading: false, session: null as Session | null, page: null as Page | null, stats: null as Stats | null, sync: null as Sync | null, localSearchOpen: false, localQuery: '', hits: [] as { id: number; role: string; preview: string }[], hitIndex: 0 };
 let listAbort: AbortController | null = null, readerAbort: AbortController | null = null, hitAbort: AbortController | null = null;
 let listVersion = 0, readerVersion = 0, statsVersion = 0, syncBusy = false;
+let syncStarting = false, syncTimer = 0;
+let lastAutoSyncAttempt = 0;
+const automaticSyncInterval = 5 * 60 * 1000;
 const readerCache = new Map<string, Page>();
 const readSize = Number(localStorage.getItem('echo-font')) || 15;
 document.documentElement.style.setProperty('--read-size', readSize + 'px');
@@ -411,9 +414,10 @@ async function sourcesDialog(open = true) {
         <section class="sources-column" aria-label="对话来源">
           <h3 class="section-label">${icon('Database')}对话来源 <span>${data.sources.length}</span></h3>
           <div class="source-list">${data.sources.map(source=>`<div class="source-row"><span class="source-icon">${icon(source.platform==='Windows'?'Monitor':source.kind==='ChatGPT'?'MessagesSquare':'Terminal')}</span><div><b>${esc(source.platform)} · ${esc(source.kind)}</b><code>${esc(source.path)}</code></div><span class="source-status ${source.exists?'':'unavailable'}"><i></i>${source.exists?'可读取':'暂不可用'}</span></div>`).join('') || '<p class="source-empty">暂无来源，添加路径或导入文件即可收录。</p>'}</div>
-          <form id="add-source-form" class="path-form"><input id="source-path" aria-label="添加来源路径" placeholder=".codex 目录或 ChatGPT 导出路径"><button class="button" type="submit">添加来源</button></form>
+          <form id="add-source-form" class="path-form"><input id="source-path" aria-label="添加来源路径" placeholder=".codex、桌面 Chat 缓存或导出路径"><button class="button" type="submit">添加来源</button></form>
+          <div class="dialog-note">${icon('MessagesSquare')}<span>自动发现 Windows 桌面应用的 Chat 正文缓存。只收录已缓存的内容；缺少历史时，在桌面应用打开对话并向前翻阅，再点击同步。缓存可能被清理，完整历史仍可通过官方导出补充。</span></div>
           <div class="import-section">
-            <div><h3>导入 ChatGPT 对话</h3><p>支持官方 conversations.json / ZIP，保留全部对话分支。</p><a href="https://help.openai.com/en/articles/7260999-exporting-your-chatgpt-history-and-data" target="_blank" rel="noopener noreferrer">如何导出 ChatGPT 数据 ${icon('ArrowUpRight')}</a></div>
+            <div><h3>导入 ChatGPT 导出文件</h3><p>支持官方 conversations.json / ZIP，保留全部对话分支，与桌面缓存按消息 ID 合并。</p><a href="https://help.openai.com/en/articles/7260999-exporting-your-chatgpt-history-and-data" target="_blank" rel="noopener noreferrer">如何导出 ChatGPT 数据 ${icon('ArrowUpRight')}</a></div>
             <label class="button import-label">${icon('Upload')}导入文件<input id="import-file" type="file" accept=".json,.zip" hidden></label>
           </div>
           ${report&&(report.errors.length||report.warnings.length)?`<details class="sync-issues"><summary>${icon('CircleHelp')}${report.errors.length} 个错误 · ${report.warnings.length} 个提示</summary>${[...report.errors,...report.warnings].map(e=>`<p><code>${esc(e.path)}</code><span>${esc(e.error)}</span></p>`).join('')}</details>`:''}
@@ -577,16 +581,37 @@ async function pollRestore() {
 }
 pollRestore();
 
-async function startSync(full = false) { if(syncBusy)return; try{const result=await post<{started:boolean}>('/sync',{full});if(result.started){toast(full?'开始完整扫描，已有历史继续保留':'开始同步对话');readerCache.clear();}pollSync();}catch(error){handle(error);} }
+async function startSync(full = false, automatic = false) {
+  if(syncStarting || state.sync?.running)return;
+  syncStarting = true;
+  try {
+    const result=await post<{started:boolean}>('/sync',automatic?{full:false,automatic:true}:{full});
+    if(result.started){if(!automatic)toast(full?'开始完整扫描，已有历史继续保留':'开始同步对话');readerCache.clear();}
+    void pollSync();
+  }catch(error){if(!automatic)handle(error);}
+  finally{syncStarting=false;}
+}
+function maybeAutoSync() {
+  const report=state.sync;
+  if(!report || report.running || syncStarting)return;
+  if(report.started==null && report.finished==null)return;
+  const last=Math.max(report.started||0,report.finished||0)*1000;
+  const current=Date.now();
+  if((!last || current-last>=automaticSyncInterval)&&current-lastAutoSyncAttempt>=60000){lastAutoSyncAttempt=current;void startSync(false,true);}
+}
 async function pollSync() {
+  window.clearTimeout(syncTimer);
   if(syncBusy)return;syncBusy=true;
-  try { const before=state.sync?.running;const report=await api<Sync>('/sync');state.sync=report;
+  let checked = false;
+  try { const previous=state.sync;const report=await api<Sync>('/sync');state.sync=report;checked=true;
     const button=$('#sync-button');button.classList.toggle('syncing',report.running);button.querySelector('span')!.textContent=report.running?'正在同步':'同步对话';(button as HTMLButtonElement).disabled=report.running;
     if(report.running){$('#sync-status').innerHTML=`${icon('RefreshCw','spinning')} 正在收录 ${report.done} / ${report.total} <span class="sync-file">${esc(report.file)}</span>`;if(report.done%10===0)refreshStats().catch(handle);}
-    else {$('#sync-status').innerHTML=`<i class="status-dot"></i> ${report.finished?`${report.errors.length?'同步完成，部分来源待重试':'档案已更新'} · ${num(report.imported)} 条新增 / 更新 · ${report.duration}s`:'准备就绪'}`;if(before){readerCache.clear();await refreshStats();await loadList();toast(report.errors.length?'同步完成，部分来源未读取；详情见数据与来源':`同步完成 · ${num(report.imported)} 条新增或更新`);if((document.querySelector('#sources-dialog') as HTMLDialogElement).open)sourcesDialog(false);}}
+    else {$('#sync-status').innerHTML=`<i class="status-dot"></i> ${report.finished?`${report.errors.length?'同步完成，部分来源待重试':'档案已更新'} · ${num(report.imported)} 条新增 / 更新 · ${report.duration}s`:'准备就绪'}`;if(previous&&(previous.running||report.finished!==previous.finished)){readerCache.clear();await refreshStats();await loadList();if(!report.automatic||report.errors.length)toast(report.errors.length?'同步完成，部分来源未读取；详情见数据与来源':`同步完成 · ${num(report.imported)} 条新增或更新`);if((document.querySelector('#sources-dialog') as HTMLDialogElement).open)sourcesDialog(false);}}
   }catch(error){if(!state.sync)$('#sync-status').innerHTML='<i class="status-dot offline"></i> 服务暂时未连接';}
-  finally{syncBusy=false;window.setTimeout(pollSync,state.sync?.running?1200:8000);}
+  finally{syncBusy=false;syncTimer=window.setTimeout(pollSync,state.sync?.running?1200:8000);if(checked)maybeAutoSync();}
 }
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void pollSync();});
+window.addEventListener('focus',()=>void pollSync());
 
 input('#global-search').addEventListener('input',debounce(()=>{state.q=input('#global-search').value.trim();saveUrl();loadList();},170));
 $('#clear-search').onclick=()=>{state.q='';input('#global-search').value='';saveUrl();loadList();input('#global-search').focus();};
@@ -599,6 +624,7 @@ $('#filter-button').onclick=()=>{const hidden=!$('#filters').hidden;$('#filters'
 for(const selector of ['#platform-filter','#provider-filter','#date-from','#date-to','#search-all'])$(selector).onchange=()=>{state.platform=(document.querySelector('#platform-filter') as HTMLSelectElement).value;state.provider=(document.querySelector('#provider-filter') as HTMLSelectElement).value;state.from=input('#date-from').value;state.to=input('#date-to').value;state.all=input('#search-all').checked;$('#filter-dot').hidden=!(state.platform||state.provider||state.from||state.to||state.all);saveUrl();loadList();};
 $('#reset-filters').onclick=()=>{resetFilters();saveUrl();loadList();};
 $('#sources-button').onclick=()=>sourcesDialog();$('#sync-button').onclick=()=>startSync();
+$('#sync-button').title='页面打开时约每5分钟自动增量同步；点击立即同步';
 $('#theme').onclick=()=>{const theme=document.documentElement.dataset.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=theme;localStorage.setItem('echo-theme',theme);$('#theme').innerHTML=icon(theme==='dark'?'Sun':'Moon');};
 $('#theme').innerHTML=icon(document.documentElement.dataset.theme==='dark'?'Sun':'Moon');
 $('#mobile-menu').onclick=()=>document.body.classList.toggle('nav-open');$('.sidebar-scrim').onclick=closeSidebar;

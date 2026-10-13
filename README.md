@@ -26,8 +26,9 @@ Codex history can be scattered across your Windows host, WSL users, and archived
 - Includes both active and archived sessions, with support for older and newer record formats.
 - Lets you add source paths yourself, including Windows paths such as `C:\Users\you\.codex` when running in WSL.
 - Imports ChatGPT's `conversations.json` or a ZIP containing it, preserving conversation branches.
+- Discovers Windows ChatGPT Desktop's local Chat response cache, decompresses conversation bodies, and merges them with official exports by conversation and message ID.
 
-Source files are read without being changed. Other WSL distributions must be available through a readable path. ChatGPT history comes from an export you provide; there is no live cloud sync.
+Source files are read without being changed. Other WSL distributions must be available through a readable path. Desktop Chat imports include only cached content, which may be cleared or contain partial pages. Open a conversation and scroll back in Desktop before syncing to collect newly cached history. Official exports can supply the complete history; there is no live cloud sync.
 
 ## Find the answer you remember, even when you forget the title
 
@@ -67,6 +68,8 @@ pnpm start
 ```
 
 Open **http://localhost:8765**, then click **同步对话** (Sync conversations). Open **数据与来源** (Data & sources) to add a source, import a ChatGPT export, or manage backups.
+
+After building, Windows users can double-click **Start Echo Vault.cmd** in Explorer instead of running `pnpm start`. It launches projects stored in WSL in the correct distribution, opens the browser, and reuses an existing service. You can create a desktop shortcut and minimize the launcher window. Keeping a page open enables incremental sync roughly every five minutes.
 
 The app currently has a Chinese interface. These READMEs are available in both languages.
 
