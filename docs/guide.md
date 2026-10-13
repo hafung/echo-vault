@@ -62,6 +62,8 @@ Messages load in batches of 30, with at most 90 in the continuous reading window
 
 Markdown is sanitized. Scripts and inline styles are removed, and remote images are not loaded automatically. Local links resolve relative to the conversation's project directory where appropriate. Opening a file or folder requires confirmation; unavailable paths show a message. WSL can open files with Windows default applications. Programs and scripts can be revealed in their folder.
 
+ChatGPT Intelligent UI (DIL) supports common layouts, prose, entities, citations, tables, and static data lists. Image descriptions and source links are retained; click the image button to load a remote image. On startup, existing archives recover component data from their saved original records. Controls display a static snapshot; complex expressions and apps remain available under the original-content disclosure. Model-written JavaScript is never executed. Ordinary Markdown and code examples keep their existing rendering.
+
 Shortcuts: `Ctrl / ⌘ K` for global search, `Ctrl / ⌘ F` for conversation search, `↑ ↓` to move between conversations, and `Esc` to dismiss panels or clear search.
 
 ## Complete backups

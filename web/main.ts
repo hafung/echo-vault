@@ -1,8 +1,8 @@
 import './style.css';
 import { createElement, Search, Folder, MessagesSquare, Star, RefreshCw, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, X, Check, Download, Copy, SlidersHorizontal, Database, ShieldCheck, Terminal, PanelLeft, Moon, Sun, ArrowDown, ArrowUp, ArrowDownToLine, ArrowUpToLine, MoreHorizontal, FileText, Upload, CircleHelp, Monitor, Command, BookOpen, LoaderCircle, TextSearch, Layers, CheckCircle2, EyeOff, Eye, Trash2 } from 'lucide';
 import { marked } from 'marked';
-import DOMPurify from 'dompurify';
 import { localPathTarget, barePathPattern } from './local-paths';
+import { renderMessageContent, decorateMessageImages, type ChatGPTUI } from './message-content';
 
 type Node = Parameters<typeof createElement>[0];
 const icons: Record<string, Node> = { Search, Folder, MessagesSquare, Star, RefreshCw, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, X, Check, Download, Copy, SlidersHorizontal, Database, ShieldCheck, Terminal, PanelLeft, Moon, Sun, ArrowDown, ArrowUp, ArrowDownToLine, ArrowUpToLine, MoreHorizontal, FileText, Upload, CircleHelp, Monitor, Command, BookOpen, LoaderCircle, TextSearch, Layers, CheckCircle2, EyeOff, Eye, Trash2 };
@@ -22,7 +22,7 @@ function highlight(text: string, query = state.q) {
 }
 
 interface Session { id: string; title: string; project: string; cwd: string; provider: string; platform: string; model: string; created: number; updated: number; message_count: number; total_count: number; favorite: number; archived: number; hidden: number; project_hidden: number; parent_id: string | null; preview: string; match_id: number | null; matches: number; match_preview: string; sources?: { path: string; missing: number; last_sync: number }[] }
-interface Message { id: number; role: string; kind: string; phase: string; timestamp: number; body: string; truncated: boolean; length: number; metadata: { branch?: boolean; assets?: (string | { reference: string })[] } }
+interface Message { id: number; role: string; kind: string; phase: string; timestamp: number; body: string; truncated: boolean; length: number; metadata: { branch?: boolean; assets?: (string | { reference: string })[]; chatgpt_ui?: ChatGPTUI } }
 interface Page { session: Session; items: Message[]; offset: number; total: number; more: boolean }
 interface Stats { sessions: number; messages: number; events: number; projects: number; favorites: number; projects_list: { project: string; count: number; updated: number; hidden: number }[]; platforms: { platform: string; count: number }[]; providers: { provider: string; count: number }[]; last_sync: number; db_bytes: number; raw_bytes: number }
 interface Sync { running: boolean; automatic?: boolean; stage: string; done: number; total: number; imported: number; skipped: number; errors: { path: string; error: string }[]; warnings: { path: string; error: string }[]; duration?: number; started?: number; finished?: number; file: string }
@@ -235,7 +235,7 @@ async function loadList(append = false) {
 function renderMessage(m: Message) {
   const technical = !['user', 'assistant'].includes(m.role);
   const labels: Record<string, string> = { user: '你', assistant: state.session?.provider === 'ChatGPT' ? 'GPT' : 'Codex', tool: '工具调用', reasoning: '思考过程', context: '上下文' };
-  const rendered = DOMPurify.sanitize(marked.parse(m.body, { async: false }) as string, { FORBID_TAGS: ['img', 'style', 'iframe'], FORBID_ATTR: ['style'] });
+  const rendered = renderMessageContent(m.body, m.metadata.chatgpt_ui, state.session?.provider === 'ChatGPT');
   const body = `<div class="prose" data-body="${m.id}">${rendered}</div>${m.metadata.assets?.map(a => typeof a === 'string' ? `<a class="image-link" href="/api/assets/${esc(a)}" target="_blank" rel="noopener"><img src="/api/assets/${esc(a)}" loading="lazy" alt="对话附件"></a>` : `<span class="attachment-reference">${icon('FileText')}附件引用 · ${esc(a.reference)}<small>原附件未在本机找到，引用已保留</small></span>`).join('') || ''}${m.truncated ? `<button class="text-button expand-message" data-mid="${m.id}">展开完整内容（${num(m.length)} 字） ${icon('ChevronDown')}</button>` : ''}`;
   return `<article class="message ${esc(m.role)} ${state.hits[state.hitIndex]?.id === m.id ? 'hit-message' : ''}" id="message-${m.id}" data-mid="${m.id}"><div class="message-avatar">${m.role === 'user' ? 'Z' : icon(technical ? m.role === 'reasoning' ? 'Layers' : 'Terminal' : 'Command')}</div><div class="message-main"><div class="message-heading"><b>${labels[m.role] || m.role}</b>${m.phase === 'commentary' ? '<span class="phase-tag">进展</span>' : ''}${m.metadata.branch ? '<span class="phase-tag">其他分支</span>' : ''}<time>${date(m.timestamp,true)}</time><button class="icon-button copy-message" data-mid="${m.id}" title="复制消息" aria-label="复制消息">${icon('Copy')}</button></div>${technical ? `<details class="technical"><summary>${esc(m.kind)} <span>${esc(m.body.slice(0,90).replace(/\s+/g,' '))}</span>${icon('ChevronDown')}</summary>${body}</details>` : body}</div></article>`;
 }
@@ -293,7 +293,8 @@ function decorateProse() {
   root.querySelectorAll<HTMLButtonElement>('.local-path-link').forEach(button => button.onclick = () => showLocalPath(button.dataset.localPath!));
   root.querySelectorAll<HTMLElement>('.prose pre').forEach(pre => { if (pre.querySelector('.code-copy')) return; const button = document.createElement('button'); button.className = 'code-copy'; button.title = '复制代码'; button.setAttribute('aria-label', '复制代码'); button.innerHTML = icon('Copy'); button.onclick = () => navigator.clipboard.writeText(pre.querySelector('code')?.textContent || '').then(() => toast('代码已复制')).catch(handle); pre.prepend(button); });
   root.querySelectorAll<HTMLButtonElement>('.copy-message').forEach(b => b.onclick = async () => { try { const data = await api<{ body: string }>('/messages/' + b.dataset.mid); await navigator.clipboard.writeText(data.body); toast('消息已复制'); } catch (error) { handle(error); } });
-  root.querySelectorAll<HTMLButtonElement>('.expand-message').forEach(b => b.onclick = async () => { try { b.disabled = true; const data = await api<{ body: string }>('/messages/' + b.dataset.mid); const prose = $(`[data-body="${b.dataset.mid}"]`,root); prose.innerHTML = DOMPurify.sanitize(marked.parse(data.body,{async:false}) as string,{FORBID_TAGS:['img','style','iframe'],FORBID_ATTR:['style']}); b.remove(); decorateProse(); markReader(); } catch (error) { b.disabled = false; handle(error); } });
+  root.querySelectorAll<HTMLButtonElement>('.expand-message').forEach(b => b.onclick = async () => { try { b.disabled = true; const data = await api<{ body: string }>('/messages/' + b.dataset.mid); const prose = $(`[data-body="${b.dataset.mid}"]`,root); const message = state.page?.items.find(item => String(item.id) === b.dataset.mid); prose.innerHTML = renderMessageContent(data.body, message?.metadata.chatgpt_ui, state.session?.provider === 'ChatGPT'); b.remove(); decorateProse(); markReader(); } catch (error) { b.disabled = false; handle(error); } });
+  decorateMessageImages(root);
   markReader();
 }
 function markReader() {

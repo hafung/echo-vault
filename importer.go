@@ -1264,6 +1264,24 @@ func (i *Importer) chatgptConversation(c M, path string, generation int64, full 
 			return 0, e
 		}
 		meta := M{"branch": len(active) > 0 && !active[nid], "parent": node["parent"], "assets": assets, "node_id": nid}
+		ui := chatGPTUI(obj(m["metadata"]))
+		if len(ui) > 0 {
+			meta["chatgpt_ui"] = ui
+		}
+		// Older snapshots must not discard already archived resolved UI data.
+		if len(obj(ui["model_dil_v2"])) == 0 {
+			if previous, err := one(tx, "SELECT metadata FROM messages WHERE session_id=? AND identity=?", sid, "node:"+nid); err == nil {
+				var old M
+				if json.Unmarshal([]byte(str(previous["metadata"])), &old) == nil && old["chatgpt_ui"] != nil {
+					meta["chatgpt_ui"] = old["chatgpt_ui"]
+				}
+			} else if !errors.Is(err, errNotFound) {
+				return 0, err
+			}
+		}
+		if body == "" {
+			body = str(obj(ui["model_dil_v2"])["fallbackMarkdown"])
+		}
 		changed, e := i.Store.message(tx, sid, "node:"+nid, int64(pos), role, body, stamp(m["create_time"]), str(first(content["content_type"], "message")), str(obj(m["metadata"])["phase"]), meta)
 		if e != nil {
 			tx.Rollback()

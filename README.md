@@ -6,7 +6,7 @@
 
 You remember solving that problem with an AI a few weeks ago. But which conversation was it? Was it in Windows, WSL, or ChatGPT? And will you still have it when you move to another machine?
 
-Echo Vault gives those conversations a home: bring them together, find the useful parts, and keep a complete backup on your own terms.
+Echo Vault gives those conversations a home: bring them together, find the answer you remember, read its text and images, and keep a complete backup on your own terms.
 
 ## One SQLite file. Take your history anywhere.
 
@@ -26,7 +26,7 @@ Codex history can be scattered across your Windows host, WSL users, and archived
 - Includes both active and archived sessions, with support for older and newer record formats.
 - Lets you add source paths yourself, including Windows paths such as `C:\Users\you\.codex` when running in WSL.
 - Imports ChatGPT's `conversations.json` or a ZIP containing it, preserving conversation branches.
-- Discovers Windows ChatGPT Desktop's local Chat response cache, decompresses conversation bodies, and merges them with official exports by conversation and message ID.
+- Collects cached chats from the Windows ChatGPT desktop app and combines them with official exports, avoiding duplicates.
 
 Source files are read without being changed. Other WSL distributions must be available through a readable path. Desktop Chat imports include only cached content, which may be cleared or contain partial pages. Open a conversation and scroll back in Desktop before syncing to collect newly cached history. Official exports can supply the complete history; there is no live cloud sync.
 
@@ -48,6 +48,16 @@ Favorite conversations you want to revisit. Hide projects or conversations to ti
 You can also export an individual conversation as Markdown or JSON.
 
 Delete a conversation with the trash button beside its visibility button, then confirm. This removes its local content, indexes, and raw records while leaving source files untouched. Incremental sync respects deletions across restarts; a full rescan can reimport deleted conversations from available sources. Projects disappear from navigation when their last conversation is deleted.
+
+## Read ChatGPT's richer answers without losing the useful parts
+
+An answer looked fine in ChatGPT, but its saved copy is missing a paragraph, an image, or half a recommendation card. Echo Vault supports ChatGPT's newer visual answers so those details remain readable when you revisit them.
+
+- **Keep the words and their layout.** Read recommendation cards, columns, tables, diagrams, and source links, including the prose inside cards.
+- **Keep track of images.** Image descriptions and source links remain available. Click to load an image; when the original record has none, a note explains what is missing.
+- **Recover details in existing conversations.** On startup, Echo Vault restores omitted visual content from saved original records, even when the source is no longer available.
+
+Markdown, code blocks, and ordinary tables keep their familiar presentation. Sliders, forms, and other interactive content appear as static snapshots, with the original content available to inspect. Remote images require an internet connection to load.
 
 ## Keep the history, even when the source changes
 

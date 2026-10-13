@@ -76,7 +76,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		w.Header().Set("Cache-Control", "no-store")
 	}
@@ -525,6 +525,9 @@ func main() {
 		return
 	}
 	importer := newImporter(store)
+	if err = store.recoverChatGPTUI(); err != nil {
+		log.Fatal("恢复 ChatGPT 界面数据: ", err)
+	}
 	if *syncOnly {
 		importer.update(func(s *SyncStatus) {
 			*s = SyncStatus{Running: true, Started: now(), Errors: []Issue{}, Warnings: []Issue{}}
