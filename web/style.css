@@ -109,6 +109,8 @@ body:has(#sources-dialog[open]) .backup-activity{display:none}
 .desktop-capture-settings label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600}
 .desktop-capture-settings input{accent-color:var(--green)}
 .desktop-capture-settings p{font-size:11px;line-height:1.75;color:var(--secondary);margin:8px 0 0}
+.session-sync-feedback{margin-top:12px;font-size:11px;line-height:1.7;color:var(--secondary)}
+.session-sync-feedback.has-error{color:#a05a38}
 .sources-footer{display:flex;align-items:center;justify-content:space-between;gap:20px;border-top:1px solid var(--line);margin-top:20px;padding-top:16px}
 .sources-dialog .preservation-note{padding:0;margin:0;border:0;border-radius:0;background:none;align-items:center}
 .sources-dialog .preservation-note>div{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}

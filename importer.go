@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -31,26 +32,29 @@ type Issue struct {
 	Error string `json:"error"`
 }
 type SyncStatus struct {
-	Running         bool    `json:"running"`
-	Automatic       bool    `json:"automatic"`
-	Stage           string  `json:"stage"`
-	Done            int     `json:"done"`
-	Total           int     `json:"total"`
-	Imported        int     `json:"imported"`
-	Skipped         int     `json:"skipped"`
-	Errors          []Issue `json:"errors"`
-	Warnings        []Issue `json:"warnings"`
-	File            string  `json:"file"`
-	Started         float64 `json:"started"`
-	Finished        float64 `json:"finished"`
-	Duration        float64 `json:"duration"`
-	DesktopCaptured int     `json:"desktop_captured"`
-	DesktopPending  int     `json:"desktop_pending"`
+	Running         bool               `json:"running"`
+	Automatic       bool               `json:"automatic"`
+	Stage           string             `json:"stage"`
+	Done            int                `json:"done"`
+	Total           int                `json:"total"`
+	Imported        int                `json:"imported"`
+	Skipped         int                `json:"skipped"`
+	Errors          []Issue            `json:"errors"`
+	Warnings        []Issue            `json:"warnings"`
+	File            string             `json:"file"`
+	Started         float64            `json:"started"`
+	Finished        float64            `json:"finished"`
+	Duration        float64            `json:"duration"`
+	DesktopCaptured int                `json:"desktop_captured"`
+	DesktopPending  int                `json:"desktop_pending"`
+	SessionID       string             `json:"session_id,omitempty"`
+	SessionResult   *sessionSyncResult `json:"session_result,omitempty"`
 }
 type Importer struct {
-	Store *Store
-	mu    sync.Mutex
-	state SyncStatus
+	Store       *Store
+	mu          sync.Mutex
+	state       SyncStatus
+	desktopRead func(context.Context, []desktopCaptureJob, func(desktopCaptureResult) error) error
 }
 type rolloutFile struct {
 	path     string
@@ -121,6 +125,26 @@ func (i *Importer) claimSync(automatic bool, timestamp float64) bool {
 	}
 	i.state = SyncStatus{Running: true, Automatic: automatic, Stage: "discover", Started: timestamp, Errors: []Issue{}, Warnings: []Issue{}}
 	return true
+}
+
+func (i *Importer) finishSync() {
+	if recovered := recover(); recovered != nil {
+		i.issue("同步", fmt.Errorf("%v", recovered), false)
+	}
+	i.update(func(s *SyncStatus) {
+		s.Running = false
+		s.Finished = now()
+		s.Duration = s.Finished - s.Started
+		s.File = ""
+		s.Stage = "done"
+		if len(s.Errors) > 0 {
+			s.Stage = "done_with_errors"
+		}
+	})
+	s := i.status()
+	if _, err := i.Store.Write.Exec("INSERT INTO sync_runs(started,finished,report) VALUES (?,?,?)", s.Started, s.Finished, jsonText(s)); err != nil {
+		i.issue("记录同步结果", err, false)
+	}
 }
 func localPath(value string) string {
 	value = strings.TrimSpace(value)
@@ -281,26 +305,7 @@ func snapshot(path string) (*sql.DB, func(), error) {
 	return nil, nil, errors.New("数据库持续写入，未取得稳定副本；稍后再次同步即可")
 }
 func (i *Importer) run(full bool) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			i.issue("同步", fmt.Errorf("%v", recovered), false)
-		}
-		i.update(func(s *SyncStatus) {
-			s.Running = false
-			s.Finished = now()
-			s.Duration = s.Finished - s.Started
-			s.File = ""
-			if len(s.Errors) > 0 {
-				s.Stage = "done_with_errors"
-			} else {
-				s.Stage = "done"
-			}
-		})
-		s := i.status()
-		if _, err := i.Store.Write.Exec("INSERT INTO sync_runs(started,finished,report) VALUES (?,?,?)", s.Started, s.Finished, jsonText(s)); err != nil {
-			i.issue("记录同步结果", err, false)
-		}
-	}()
+	defer i.finishSync()
 	sources, err := i.sources()
 	if err != nil {
 		i.issue("发现来源", err, false)
@@ -1204,7 +1209,7 @@ func (i *Importer) chatgptConversation(c M, path string, generation int64, full 
 	if previousErr != nil && !errors.Is(previousErr, errNotFound) {
 		return 0, previousErr
 	}
-	if original != nil && stamp(c["update_time"]) > 0 {
+	if original != nil && len(obj(c["echo_desktop_capture"])) == 0 && stamp(c["update_time"]) > 0 {
 		if previous != nil && number(previous["updated"]) > stamp(c["update_time"]) {
 			staleCache = true
 			c["title"], c["default_model_slug"] = previous["title"], previous["model"]
@@ -1217,6 +1222,9 @@ func (i *Importer) chatgptConversation(c M, path string, generation int64, full 
 	page := obj(c["page_info"])
 	capture := obj(c["echo_desktop_capture"])
 	complete := capture["complete"] == true || original != nil && oldMeta["desktop_capture_complete"] == true && previous != nil && number(previous["updated"]) >= stamp(c["update_time"])
+	if len(capture) > 0 {
+		complete = capture["complete"] == true
+	}
 	current := c["current_node"]
 	if original != nil && page["has_next_page"] == true && oldMeta["current_node"] != nil {
 		current = oldMeta["current_node"]

@@ -21,11 +21,11 @@ function highlight(text: string, query = state.q) {
   return result;
 }
 
-interface Session { id: string; title: string; project: string; cwd: string; provider: string; platform: string; model: string; created: number; updated: number; message_count: number; total_count: number; favorite: number; archived: number; hidden: number; project_hidden: number; parent_id: string | null; preview: string; match_id: number | null; matches: number; match_preview: string; sources?: { path: string; missing: number; last_sync: number }[] }
+interface Session { id: string; title: string; project: string; cwd: string; provider: string; platform: string; model: string; created: number; updated: number; message_count: number; total_count: number; favorite: number; archived: number; hidden: number; project_hidden: number; parent_id: string | null; preview: string; match_id: number | null; matches: number; match_preview: string; metadata?: { desktop_cache?: boolean }; sources?: { path: string; missing: number; last_sync: number }[] }
 interface Message { id: number; role: string; kind: string; phase: string; timestamp: number; body: string; truncated: boolean; length: number; metadata: { branch?: boolean; assets?: (string | { reference: string })[]; chatgpt_ui?: ChatGPTUI } }
 interface Page { session: Session; items: Message[]; offset: number; total: number; more: boolean }
 interface Stats { sessions: number; messages: number; events: number; projects: number; favorites: number; projects_list: { project: string; count: number; updated: number; hidden: number }[]; platforms: { platform: string; count: number }[]; providers: { provider: string; count: number }[]; last_sync: number; db_bytes: number; raw_bytes: number }
-interface Sync { running: boolean; automatic?: boolean; stage: string; done: number; total: number; imported: number; skipped: number; errors: { path: string; error: string }[]; warnings: { path: string; error: string }[]; duration?: number; started?: number; finished?: number; file: string; desktop_captured?: number; desktop_pending?: number }
+interface Sync { running: boolean; automatic?: boolean; stage: string; done: number; total: number; imported: number; skipped: number; errors: { path: string; error: string }[]; warnings: { path: string; error: string }[]; duration?: number; started?: number; finished?: number; file: string; desktop_captured?: number; desktop_pending?: number; session_id?: string; session_result?: { complete: boolean; pages: number; messages: number; streaming: boolean; missing_bodies: number } }
 interface BackupJob { id: string; mode: 'local' | 'download'; stage: 'copying' | 'compressing' | 'finishing' | 'ready' | 'error' | 'expired'; started: number; duration: number; done_bytes: number; total_bytes: number; path?: string; error?: string; format?: string; input_bytes?: number; output_bytes?: number }
 interface BackupStatus { directory: string; job: BackupJob | null }
 let backupState: BackupStatus | null = null, backupStarting = false, backupPolling = false;
@@ -312,11 +312,11 @@ function renderReader(page: Page, around?: number) {
   state.session = page.session; state.page = page; const s = page.session;
   document.body.classList.add('reading');
   const offset = page.offset, end = offset + page.items.length;
-  $('#reader-content').innerHTML = `<header class="reader-header"><div class="reader-heading-top"><div class="reader-breadcrumb"><button id="back-list" class="icon-button" aria-label="返回对话列表">${icon('ChevronLeft')}</button><span>${icon('Folder')}${esc(s.project)}</span><i>/</i><span>${esc(s.provider)}<em>${esc(s.platform)}</em></span></div><div class="reader-actions"><button id="session-visibility" class="icon-button" title="${s.hidden ? '恢复对话' : '隐藏对话'}" aria-label="${s.hidden ? '恢复对话' : '隐藏对话'}">${icon(s.hidden ? 'Eye' : 'EyeOff')}</button><button id="session-delete" class="icon-button delete-session-button" title="删除对话" aria-label="删除对话">${icon('Trash2')}</button><button id="session-favorite" class="icon-button ${s.favorite ? 'is-favorite' : ''}" title="${s.favorite ? '取消收藏' : '收藏对话'}" aria-label="${s.favorite ? '取消收藏' : '收藏对话'}">${icon('Star',s.favorite ? 'filled' : '')}</button><button id="session-search" class="icon-button" title="搜索当前对话" aria-label="搜索当前对话" aria-controls="local-search" aria-expanded="${state.localSearchOpen}">${icon('Search')}</button><details class="export-menu"><summary class="icon-button" title="导出对话" aria-label="导出对话">${icon('Download')}</summary><div class="export-popover"><a href="/api/sessions/${encodeURIComponent(s.id)}/export?format=md" download>${icon('FileText')}导出 Markdown</a><a href="/api/sessions/${encodeURIComponent(s.id)}/export?format=json" download>${icon('Database')}导出 JSON</a><a href="/api/sessions/${encodeURIComponent(s.id)}/export?format=raw" download>${icon('Terminal')}导出原始事件</a></div></details><button id="session-info" class="icon-button" title="对话详情" aria-label="对话详情">${icon('MoreHorizontal')}</button></div></div><h2>${esc(s.title)}</h2><div class="reader-meta"><span>${icon('MessagesSquare')}${num(s.message_count)} 条消息</span><i>·</i><span>${date(s.created,true)}</span>${s.model ? `<i>·</i><span class="model-name">${esc(s.model)}</span>` : ''}${s.hidden ? '<span class="phase-tag">已隐藏 / 归档</span>' : ''}${s.project_hidden ? '<span class="phase-tag">项目已隐藏</span>' : ''}${s.parent_id ? '<span class="phase-tag">子代理会话</span>' : ''}</div></header>
+  $('#reader-content').innerHTML = `<header class="reader-header"><div class="reader-heading-top"><div class="reader-breadcrumb"><button id="back-list" class="icon-button" aria-label="返回对话列表">${icon('ChevronLeft')}</button><span>${icon('Folder')}${esc(s.project)}</span><i>/</i><span>${esc(s.provider)}<em>${esc(s.platform)}</em></span></div><div class="reader-actions">${s.provider === 'ChatGPT' && s.platform === 'Windows' && s.metadata?.desktop_cache ? `<button id="session-sync" class="icon-button" title="重新同步当前对话" aria-label="重新同步当前对话">${icon('RefreshCw')}</button>` : ''}<button id="session-visibility" class="icon-button" title="${s.hidden ? '恢复对话' : '隐藏对话'}" aria-label="${s.hidden ? '恢复对话' : '隐藏对话'}">${icon(s.hidden ? 'Eye' : 'EyeOff')}</button><button id="session-delete" class="icon-button delete-session-button" title="删除对话" aria-label="删除对话">${icon('Trash2')}</button><button id="session-favorite" class="icon-button ${s.favorite ? 'is-favorite' : ''}" title="${s.favorite ? '取消收藏' : '收藏对话'}" aria-label="${s.favorite ? '取消收藏' : '收藏对话'}">${icon('Star',s.favorite ? 'filled' : '')}</button><button id="session-search" class="icon-button" title="搜索当前对话" aria-label="搜索当前对话" aria-controls="local-search" aria-expanded="${state.localSearchOpen}">${icon('Search')}</button><details class="export-menu"><summary class="icon-button" title="导出对话" aria-label="导出对话">${icon('Download')}</summary><div class="export-popover"><a href="/api/sessions/${encodeURIComponent(s.id)}/export?format=md" download>${icon('FileText')}导出 Markdown</a><a href="/api/sessions/${encodeURIComponent(s.id)}/export?format=json" download>${icon('Database')}导出 JSON</a><a href="/api/sessions/${encodeURIComponent(s.id)}/export?format=raw" download>${icon('Terminal')}导出原始事件</a></div></details><button id="session-info" class="icon-button" title="对话详情" aria-label="对话详情">${icon('MoreHorizontal')}</button></div></div><h2>${esc(s.title)}</h2><div class="reader-meta"><span>${icon('MessagesSquare')}${num(s.message_count)} 条消息</span><i>·</i><span>${date(s.created,true)}</span>${s.model ? `<i>·</i><span class="model-name">${esc(s.model)}</span>` : ''}${s.hidden ? '<span class="phase-tag">已隐藏 / 归档</span>' : ''}${s.project_hidden ? '<span class="phase-tag">项目已隐藏</span>' : ''}${s.parent_id ? '<span class="phase-tag">子代理会话</span>' : ''}</div><div id="session-sync-feedback" class="session-sync-feedback" role="status" hidden></div></header>
   <div id="local-search" class="local-search" ${state.localSearchOpen ? '' : 'hidden'}>${icon('TextSearch')}<input id="local-query" aria-label="搜索当前对话" placeholder="在这段对话中查找…" value="${esc(state.localQuery)}"><span id="hit-count"></span><button id="prev-hit" class="icon-button" title="上一个匹配" aria-label="上一个匹配">${icon('ChevronLeft')}</button><button id="next-hit" class="icon-button" title="下一个匹配" aria-label="下一个匹配">${icon('ChevronRight')}</button><button id="close-local-search" class="icon-button" aria-label="关闭对话搜索">${icon('X')}</button></div>
   <div class="reading-toolbar"><label class="checkbox"><input id="show-all" type="checkbox" ${state.all ? 'checked' : ''}>${icon('Layers')} 展示工具与上下文</label><div><button id="font-smaller" class="text-size" title="缩小字号" aria-label="缩小字号">A−</button><button id="font-larger" class="text-size" title="放大字号" aria-label="放大字号">A+</button></div></div>
   <div class="reader-body"><div id="message-scroll" class="message-scroll"><div id="messages" class="messages">${offset ? `<button id="previous-messages" class="message-page-button">${icon('ArrowUp')} 查看前面的消息 <span>还有 ${num(offset)} 条</span></button>` : '<div class="conversation-start"><span>对话开始</span></div>'}${page.items.map(renderMessage).join('') || '<div class="empty-list"><p>此会话尚无可展示的正文。可开启工具与上下文，或导出原始记录。</p></div>'}${page.more ? `<button id="next-messages" class="message-page-button">${icon('ArrowDown')} 继续阅读 <span>还有 ${num(page.total-end)} 条</span></button>` : '<div class="conversation-end"><span>这段记忆，已妥善保存。</span>'+icon('ShieldCheck')+'</div>'}</div></div><nav class="reader-navigation" aria-label="对话位置"><button id="go-start" class="reader-jump" title="回到开头" aria-label="回到开头" aria-controls="message-scroll">${icon('ArrowUpToLine')}</button><button id="go-end" class="reader-jump" title="前往末尾" aria-label="前往末尾" aria-controls="message-scroll">${icon('ArrowDownToLine')}</button></nav></div><div class="reader-footer"><span>${num(offset+1)} – ${num(end)} / ${num(page.total)} 条<span class="footer-faint"> · 按需加载</span></span><span>只读档案 ${icon('ShieldCheck')}</span></div>`;
-  bindReader(); decorateProse();
+  bindReader(); renderSessionSyncStatus(); decorateProse();
   if (around) requestAnimationFrame(() => { const target = $('#message-' + around); if (target) { target.classList.add('hit-message'); target.scrollIntoView({ block: 'center', behavior: 'instant' }); target.querySelector('details')?.setAttribute('open',''); } });
   if (state.localQuery) updateHitCount();
 }
@@ -354,6 +354,7 @@ async function openSession(id: string, around?: number, push = false, offset = 0
 }
 function bindReader() {
   $('#back-list').onclick = () => { document.body.classList.remove('reading'); state.id = ''; state.session = null; state.page = null; saveUrl(); welcome(); document.querySelectorAll('.conversation-card').forEach(el => el.classList.remove('selected')); };
+  if ($('#session-sync')) $('#session-sync').onclick = () => startSessionSync();
   $('#session-favorite').onclick = () => favorite();
   $('#session-visibility').onclick = () => setVisibility('session', state.id, !state.session!.hidden);
   $('#session-delete').onclick = confirmSessionDelete;
@@ -588,6 +589,48 @@ async function pollRestore() {
 }
 pollRestore();
 
+function sessionSyncMessage(report: Sync) {
+  if (report.errors.length) return report.errors[0].error;
+  const result = report.session_result;
+  if (!result) return '本次未返回会话正文，请重新同步';
+  const saved = `已保存 ${num(result.messages)} 条正文 · 本轮读取 ${num(result.pages)} 页`;
+  if (result.streaming) return saved + ' · 回答仍在输出，后续同步继续检查';
+  if (result.missing_bodies) return saved + ` · 接口仍有 ${num(result.missing_bodies)} 条正文未返回，可稍后重试`;
+  if (!result.complete) return saved + ' · 还有历史分页，点击重新同步继续读取';
+  return saved + ' · 接口分页已读完';
+}
+function renderSessionSyncStatus() {
+  const button = $('#session-sync') as HTMLButtonElement | null;
+  if (!button) return;
+  button.disabled = syncStarting || !!state.sync?.running;
+  const report = state.sync;
+  const active = report?.session_id === state.id;
+  button.classList.toggle('syncing', !!active && !!report?.running);
+  const feedback = $('#session-sync-feedback');
+  feedback.hidden = !active;
+  if (active && report) {
+    feedback.textContent = report.running ? '正在重新读取当前对话…' : sessionSyncMessage(report);
+    feedback.classList.toggle('has-error', report.errors.length > 0);
+  }
+}
+async function startSessionSync() {
+  if (syncStarting || state.sync?.running || !state.session) return;
+  const id = state.id;
+  syncStarting = true; renderSessionSyncStatus();
+  try {
+    const result = await post<{started:boolean}>('/sessions/' + encodeURIComponent(id) + '/sync', {});
+    toast(result.started ? '开始重新同步当前对话' : '已有同步正在进行，请完成后重试');
+    await pollSync();
+  } catch(error) { handle(error); }
+  finally { syncStarting = false; renderSessionSyncStatus(); }
+}
+async function reloadCurrentReader() {
+  if (!state.session || !state.id) return;
+  const scroll = $('#message-scroll');
+  const anchor = scroll && Array.from(scroll.querySelectorAll<HTMLElement>('.message')).find(m => m.getBoundingClientRect().bottom > scroll.getBoundingClientRect().top + 20);
+  await openSession(state.id, anchor ? Number(anchor.dataset.mid) : undefined, false, state.page?.offset || 0);
+}
+
 async function startSync(full = false, automatic = false) {
   if(syncStarting || state.sync?.running)return;
   syncStarting = true;
@@ -610,10 +653,10 @@ async function pollSync() {
   window.clearTimeout(syncTimer);
   if(syncBusy)return;syncBusy=true;
   let checked = false;
-  try { const previous=state.sync;const report=await api<Sync>('/sync');state.sync=report;checked=true;
+  try { const previous=state.sync;const report=await api<Sync>('/sync');state.sync=report;checked=true;renderSessionSyncStatus();
     const button=$('#sync-button');button.classList.toggle('syncing',report.running);button.querySelector('span')!.textContent=report.running?'正在同步':'同步对话';(button as HTMLButtonElement).disabled=report.running;
     if(report.running){$('#sync-status').innerHTML=`${icon('RefreshCw','spinning')} ${report.stage==='chatgpt_desktop_live'?'正在补全桌面历史':`正在收录 ${report.done} / ${report.total}`} <span class="sync-file">${esc(report.file)}</span>`;if(report.done%10===0)refreshStats().catch(handle);}
-    else {$('#sync-status').innerHTML=`<i class="status-dot"></i> ${report.finished?`${report.errors.length?'同步完成，部分来源待重试':'档案已更新'} · ${num(report.imported)} 条新增 / 更新 · ${report.duration}s`:'准备就绪'}`;if(previous&&(previous.running||report.finished!==previous.finished)){readerCache.clear();await refreshStats();await loadList();if(!report.automatic||report.errors.length)toast(report.errors.length?'同步完成，部分来源未读取；详情见数据与来源':`同步完成 · ${num(report.imported)} 条新增或更新`);if((document.querySelector('#sources-dialog') as HTMLDialogElement).open)sourcesDialog(false);}}
+    else {$('#sync-status').innerHTML=`<i class="status-dot"></i> ${report.finished?`${report.errors.length?'同步完成，部分来源待重试':'档案已更新'} · ${num(report.imported)} 条新增 / 更新 · ${report.duration}s`:'准备就绪'}`;if(previous&&(previous.running||report.finished!==previous.finished)){readerCache.clear();await refreshStats();await loadList();if(report.session_id)toast(sessionSyncMessage(report),report.errors.length>0);else if(!report.automatic||report.errors.length||report.warnings.length)toast(report.errors.length?'同步完成，部分来源未读取；详情见数据与来源':report.warnings.length?'同步完成，部分内容待补全；详情见数据与来源':`同步完成 · ${num(report.imported)} 条新增或更新`);if(!report.session_id||state.id===report.session_id)await reloadCurrentReader();if((document.querySelector('#sources-dialog') as HTMLDialogElement).open)sourcesDialog(false);}}
   }catch(error){if(!state.sync)$('#sync-status').innerHTML='<i class="status-dot offline"></i> 服务暂时未连接';}
   finally{syncBusy=false;syncTimer=window.setTimeout(pollSync,state.sync?.running?1200:8000);if(checked)maybeAutoSync();}
 }

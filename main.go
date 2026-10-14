@@ -283,6 +283,14 @@ func (a *App) post(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) == 4 && parts[0] == "api" && parts[1] == "sessions" && parts[3] == "sync" {
+		started, err := a.Importer.startSessionSync(parts[2])
+		if err != nil {
+			return err
+		}
+		jsonResponse(w, M{"started": started})
+		return nil
+	}
 	if len(parts) == 4 && parts[0] == "api" && parts[1] == "sessions" && parts[3] == "delete" {
 		if v["confirmed"] != true {
 			return errors.New("请确认删除此对话")

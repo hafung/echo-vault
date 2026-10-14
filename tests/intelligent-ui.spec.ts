@@ -1,8 +1,16 @@
 import { test, expect } from '@playwright/test';
+import {readFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
 
 const session = { id: 'dil-fixture', title: 'Intelligent UI 归档', project: 'ChatGPT', cwd: '', provider: 'ChatGPT', platform: 'Windows', model: 'GPT', favorite: 0, message_count: 1, total_count: 1, created: 1767225600, updated: 1767225600 };
 
 async function fixture(page: import('@playwright/test').Page, body: string, metadata = {}, truncated = false, expanded = body) {
+  await page.route('**/*', async route=>{
+    const url=new URL(route.request().url());
+    if(route.request().resourceType()==='document')return route.fulfill({body:await readFile(resolve('dist/index.html')),contentType:'text/html'});
+    if(url.pathname.startsWith('/assets/'))return route.fulfill({body:await readFile(resolve('dist',url.pathname.slice(1))),contentType:url.pathname.endsWith('.js')?'application/javascript':'text/css'});
+    return route.fallback();
+  });
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/api/stats') return route.fulfill({ json: { sessions: 1, messages: 1, events: 1, projects: 1, favorites: 0, projects_list: [], platforms: [], providers: [], last_sync: 1, db_bytes: 0, raw_bytes: 0 } });
@@ -82,4 +90,26 @@ test('ordinary Markdown, partial DIL and hostile markup stay readable and saniti
   await expect(page.locator('.dil-response strong')).toHaveText('尚未闭合的回答');
   await expect(page.locator('.dil-response')).toContainText('正文仍然可读');
   await expect(page.locator('.dil-image')).toContainText('图片未包含在存档中');
+});
+
+test('pension comparison layouts show cards, ratios and progress bars outside the source disclosure', async ({page})=>{
+  const body=`# 制度比较\n\n<box border radius="xl" padding={3} gap={3}><grid columns={3} gap={2}><grid-item><box background="surface-secondary" radius="lg" padding={3}><text weight="medium" size="sm">老人</text><text size="xs">改革前已退休</text></box></grid-item><grid-item><text>中人</text></grid-item><grid-item><text>新人</text></grid-item></grid></box>\n\n<row align="center" gap={1}><box flex={3} background="rgba(67,132,211,0.14)"><text>改革前工作年限</text></box><box flex={2} background="rgba(32,153,105,0.13)"><text>改革后工作年限</text></box></row>\n\n<box background="surface-tertiary" height="9px" radius="full" clip><box background="#3C86D1" width="75%" height="100%" radius="full"/></box>\n\n<box><title size="2xl" tabularNums>43.2万元</title><text color="secondary" size="xs">缴费累计额</text></box>\n\n\\[\\text{基本养老金}=\\text{基础养老金}+\\text{个人账户养老金}\\]\n\n后续完整正文。`;
+  await fixture(page,body);
+  const prose=page.locator('.dil-response');
+  await expect(prose.locator('.dil-grid-item')).toHaveCount(3);
+  await expect(prose).toContainText('改革前已退休');
+  await expect(prose).toContainText('后续完整正文');
+  await expect(page.locator('.dil-source')).not.toHaveAttribute('open');
+  await expect(page.locator('.dil-source summary')).toHaveText('查看布局标记（正文已展示）');
+  await expect(page.locator('.dil-note')).toHaveCount(0);
+  const boxes=prose.locator('.dil-row > .dil-box');
+  expect(await boxes.first().evaluate(el=>getComputedStyle(el).flexGrow)).toBe('3');
+  expect(await boxes.last().evaluate(el=>getComputedStyle(el).flexGrow)).toBe('2');
+  const track=prose.locator('.dil-box').filter({has:page.locator('[data-dil-layout*="75%"]')});
+  expect(await track.evaluate(el=>el.getBoundingClientRect().height)).toBe(9);
+  const fill=prose.locator('[data-dil-layout*="75%"]');
+  expect(await fill.evaluate(el=>getComputedStyle(el).backgroundColor)).toBe('rgb(60, 134, 209)');
+  expect(await fill.evaluate(el=>el.getBoundingClientRect().width/el.parentElement!.getBoundingClientRect().width)).toBeCloseTo(.75,2);
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
 });

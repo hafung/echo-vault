@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $script:socket = $null
 $script:sequence = 0
+$phase = 'input'
 
 function Write-Record($value) {
     [Console]::Out.WriteLine(($value | ConvertTo-Json -Depth 100 -Compress))
@@ -71,14 +72,18 @@ try {
     $inputValue = [Console]::In.ReadToEnd() | ConvertFrom-Json
     $port = [int]$inputValue.port
     if ($port -ne 19222) { throw 'Unexpected inspector port' }
+    $phase = 'inspector'
     $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
-    if (!$listeners.Count) { Write-Record @{kind='unavailable'}; exit 0 }
+    if (!$listeners.Count) { Write-Record @{kind='unavailable';error='inspector'}; exit 0 }
     if (@($listeners | Where-Object LocalAddress -notin @('127.0.0.1','::1')).Count) { throw 'Inspector must listen only on loopback' }
     $owner = Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq $listeners[0].OwningProcess }
     if ($owner.Name -ne 'ChatGPT.exe' -or $owner.ExecutablePath -notmatch '[\\/]OpenAI\.[^\\/]+[\\/]app[\\/]ChatGPT\.exe$') { throw 'Inspector is not the installed ChatGPT Desktop' }
+    $phase = 'module'
     $module = Read-ModuleName $owner.ExecutablePath
-    $targets = @(Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/list" -TimeoutSec 3 | Where-Object { $_.type -eq 'page' -and $_.url -match '^app://-/' -and $_.webSocketDebuggerUrl })
-    if (!$targets.Count) { Write-Record @{kind='unavailable'}; exit 0 }
+    $phase = 'page'
+    $targets = @((Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/list" -TimeoutSec 3) | Where-Object { $_.type -eq 'page' -and $_.url -match '^app://-/' -and $_.webSocketDebuggerUrl })
+    if (!$targets.Count) { Write-Record @{kind='unavailable';error='page'}; exit 0 }
+    $phase = 'connection'
     Open-Cdp $targets[0].webSocketDebuggerUrl $port
     $deadline = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + 90000
     $template = @'
@@ -97,7 +102,7 @@ try {
     const get=(path,query)=>{
       const remaining=deadline-Date.now();
       if(remaining<1000)throw Error('Budget exhausted');
-      return Request.safeGet(path,{parameters:{path:{conversation_id:job.id},query},signal:AbortSignal.timeout(Math.min(15000,remaining))});
+      return Request.safeGet(path,{parameters:{path:{conversation_id:job.id},query},additionalHeaders:{'Cache-Control':'no-cache'},signal:AbortSignal.timeout(Math.min(15000,remaining))});
     };
     conversation=await get('/conversations/{conversation_id}',{num_turns:10,include_has_versions:true});
     if((conversation.conversation_id||conversation.id)!==job.id||!Array.isArray(conversation.messages)||!conversation.page_info)throw Error('Invalid conversation');
@@ -139,5 +144,5 @@ try {
             [Console]::Out.Flush()
         } catch { Write-Record @{kind='error';id=$job.id;status=0} }
     }
-} catch { Write-Record @{kind='unavailable'} }
+} catch { Write-Record @{kind='unavailable';error=$phase} }
 finally { if ($script:socket) { $script:socket.Dispose() } }

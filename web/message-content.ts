@@ -140,7 +140,7 @@ export function renderMessageContent(body: string, ui?: ChatGPTUI, chatGPT = fal
   let limited = false, count = 0;
   function markdown(source: string, context: Scope): string {
     // Only interpolate outside code spans/fences; parts() has already preserved them.
-    source = source.replace(/(`{3,}[^\n]*\n[\s\S]*?(?:\n`{3,}|$)|~{3,}[^\n]*\n[\s\S]*?(?:\n~{3,}|$)|(`+)[\s\S]*?\2)|\{([^{}\n]+)\}/g, (raw, code: string | undefined, _ticks: string, expression: string) => {
+    source = source.replace(/(`{3,}[^\n]*\n[\s\S]*?(?:\n`{3,}|$)|~{3,}[^\n]*\n[\s\S]*?(?:\n~{3,}|$)|(`+)[\s\S]*?\2|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))|\{([^{}\n]+)\}/g, (raw, code: string | undefined, _ticks: string, expression: string) => {
       if (code) return raw;
       const value = staticValue(expression, context);
       if (value === undefined || typeof value === 'object') { limited = true; return '<code>' + esc(raw) + '</code>'; }
@@ -246,8 +246,9 @@ export function renderMessageContent(body: string, ui?: ChatGPTUI, chatGPT = fal
     const inner = content.replace(/^<p>([\s\S]*)<\/p>\n?$/, '$1');
     if (name === 'link') { const url = safeRemoteURL(a.url ?? a.href); return url ? `<a href="${esc(url)}">${inner || esc(a.title ?? url)}</a>` : inner || esc(a.title); }
     if (name === 'bold' || name === 'italic' || name === 'badge') { const tag = name === 'bold' ? 'strong' : name === 'italic' ? 'em' : 'span'; return `<${tag} class="dil-${name}">${inner}</${tag}>`; }
-    if (name === 'title') return `<h3 class="dil-title">${inner}</h3>`;
-    if (name === 'text' || name === 'caption') return `<div class="dil-${name}">${content}</div>`;
+    const presentation = ` data-dil-presentation="${esc(JSON.stringify(Object.fromEntries(['color','weight','size','tabularNums'].filter(key=>a[key] !== undefined).map(key=>[key,a[key]]))))}"`;
+    if (name === 'title') return `<h3 class="dil-title"${presentation}>${inner}</h3>`;
+    if (name === 'text' || name === 'caption') return `<div class="dil-${name}"${presentation}>${content}</div>`;
     if (name === 'table') return `<div class="dil-table-wrap"><table>${content}</table></div>`;
     const table: Record<string, string> = { 'table-head': 'thead', 'table-body': 'tbody', 'table-row': 'tr', 'table-cell': a.header ? 'th' : 'td', list: 'ul', 'list-item': 'li' };
     if (table[name]) return `<${table[name]}>${content}</${table[name]}>`;
@@ -264,14 +265,42 @@ export function renderMessageContent(body: string, ui?: ChatGPTUI, chatGPT = fal
     if (a.flex) classes.push('dil-flex');
     if (name === 'grid') classes.push('dil-cols-' + Math.max(1, Math.min(4, Number(a.columns) || 2)));
     if (a.padding) classes.push('dil-padded');
-    return `<div class="${classes.join(' ')}">${content}</div>`;
+    const layout = Object.fromEntries(['background','radius','padding','gap','flex','align','justify','width','height','clip'].filter(key=>a[key] !== undefined).map(key=>[key,a[key]]));
+    return `<div class="${classes.join(' ')}" data-dil-layout="${esc(JSON.stringify(layout))}">${content}</div>`;
   }
   const rendered = children(tree, scope, false);
   const note = limited ? '<div class="dil-note">部分交互或表达式以存档快照展示。</div>' : '';
-  return sanitize(`<div class="dil-response">${rendered}</div>${note}<details class="dil-source"><summary>查看原始内容</summary><pre><code>${esc(body || dil?.fallbackMarkdown || '')}</code></pre></details>`);
+  return sanitize(`<div class="dil-response">${rendered}</div>${note}<details class="dil-source"><summary>${limited?'查看布局标记与未还原内容':'查看布局标记（正文已展示）'}</summary><pre><code>${esc(body || dil?.fallbackMarkdown || '')}</code></pre></details>`);
 }
 
 export function decorateMessageImages(root: ParentNode): void {
+  // Apply only validated CSS values after sanitization. Archived CSS, scripts,
+  // event handlers and compiled component code are never evaluated.
+  root.querySelectorAll<HTMLElement>('[data-dil-layout],[data-dil-presentation]').forEach(node=>{
+    let a: Data;
+    try { a = data(JSON.parse(node.dataset.dilLayout ?? node.dataset.dilPresentation ?? '{}')); } catch { return; }
+    const scale=(value: unknown)=>typeof value==='number' && Number.isFinite(value) && value>=0 && value<=16 ? `${value*4}px` : undefined;
+    const length=(value: unknown)=>typeof value==='string' && /^(?:\d{1,3}(?:\.\d+)?(?:px|%)|auto)$/.test(value) ? value : undefined;
+    for(const key of ['padding','gap'] as const) { const value=scale(a[key]); if(value)node.style[key]=value; }
+    for(const key of ['width','height'] as const) { const value=length(a[key]); if(value)node.style[key]=value; }
+    const radius=({sm:'4px',md:'6px',lg:'10px',xl:'14px',full:'9999px'} as Record<string,string>)[text(a.radius)];
+    if(radius)node.style.borderRadius=radius;
+    if(typeof a.flex==='number' && Number.isFinite(a.flex) && a.flex>0 && a.flex<=16)node.style.flex=`${a.flex} 1 0%`;
+    const align=({center:'center',start:'flex-start',end:'flex-end',stretch:'stretch'} as Record<string,string>)[text(a.align)];
+    if(align)node.style.alignItems=align;
+    const justify=({center:'center',start:'flex-start',end:'flex-end',between:'space-between',around:'space-around'} as Record<string,string>)[text(a.justify)];
+    if(justify)node.style.justifyContent=justify;
+    const background=text(a.background);
+    if(['surface-secondary','surface-tertiary'].includes(background))node.style.backgroundColor='var(--hover)';
+    else if(/^#[\da-f]{3,8}$/i.test(background) || /^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0(?:\.\d+)?|1(?:\.0+)?))?\s*\)$/i.test(background))node.style.backgroundColor=background;
+    if(a.clip===true)node.style.overflow='hidden';
+    if(a.height!==undefined) { node.style.flexShrink='0'; if(!node.textContent?.trim())node.style.minHeight='0'; }
+    if(a.color==='secondary')node.style.color='var(--muted)';
+    const size=({'2xs':'.75em',xs:'.85em',sm:'.93em',lg:'1.2em',xl:'1.5em','2xl':'1.85em'} as Record<string,string>)[text(a.size)];
+    if(size)node.style.fontSize=size;
+    if(a.weight==='medium')node.style.fontWeight='600';
+    if(a.tabularNums===true)node.style.fontVariantNumeric='tabular-nums';
+  });
   root.querySelectorAll<HTMLButtonElement>('.dil-load-image').forEach(button => {
     button.onclick = () => {
       const url = safeRemoteURL(button.dataset.imageUrl);

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func liveTestResult(id string, complete bool, cursor string, messages ...any) desktopCaptureResult {
@@ -176,3 +178,150 @@ type liveProbeError struct {
 }
 
 func (e *liveProbeError) Error() string { return "Desktop probe returned " + strings.TrimSpace(e.kind) }
+
+func waitSessionSync(t *testing.T, i *Importer) SyncStatus {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if !i.status().Running {
+			return i.status()
+		}
+		time.Sleep(time.Millisecond * 5)
+	}
+	t.Fatal("session sync did not finish")
+	return SyncStatus{}
+}
+
+func TestSessionSyncBypassesCompletedCheckpointAndOnlyReadsRequestedChat(t *testing.T) {
+	s := testStore(t)
+	i := newImporter(s)
+	check(t, i.setDesktopCapture(true))
+	for _, id := range []string{"chosen", "other"} {
+		check(t, i.importDesktopCapture(desktopCaptureJob{ID: id, updated: 110}, liveTestResult(id, true, "", cacheMessage("q", "user", "旧问题", 109), cacheMessage("a", "assistant", "旧回答", 110)), false))
+	}
+	// Include a future retry delay: manual recovery must bypass it too.
+	check(t, i.saveDesktopCheckpoint(desktopCaptureJob{ID: "chosen"}, desktopCheckpoint{Updated: 110, Attempt: now(), RetryAfter: now() + 1800, Complete: true, Cursor: "old-cursor"}))
+	entered := make(chan []desktopCaptureJob, 1)
+	release := make(chan struct{})
+	i.desktopRead = func(ctx context.Context, jobs []desktopCaptureJob, accept func(desktopCaptureResult) error) error {
+		entered <- jobs
+		<-release
+		return accept(liveTestResult("chosen", true, "", cacheMessage("q", "user", "旧问题", 109), cacheMessage("a", "assistant", "已输出完整的新回答", 110), cacheMessage("new-q", "user", "新问题", 111)))
+	}
+	app := &App{Store: s, Importer: i}
+	res := backupRequest(t, app, "POST", "/api/sessions/chatgpt:chosen/sync", `{}`)
+	if res.Code != 200 {
+		t.Fatal(res.Body.String())
+	}
+	jobs := <-entered
+	if len(jobs) != 1 || jobs[0].ID != "chosen" || jobs[0].Cursor != "" {
+		t.Fatal("wrong manual job", jobs)
+	}
+	if i.start(false) {
+		t.Fatal("global sync overlapped session read")
+	}
+	started, err := i.startSessionSync("chatgpt:chosen")
+	check(t, err)
+	if started {
+		t.Fatal("duplicate targeted sync started")
+	}
+	close(release)
+	report := waitSessionSync(t, i)
+	if report.SessionID != "chatgpt:chosen" || report.SessionResult == nil || report.SessionResult.Messages != 3 || report.Imported != 2 || len(report.Errors) > 0 {
+		t.Fatal("wrong result", report)
+	}
+	other, err := one(s.DB, "SELECT message_count FROM sessions WHERE id='chatgpt:other'")
+	check(t, err)
+	if integer(other["message_count"]) != 2 {
+		t.Fatal("other chat was touched")
+	}
+}
+
+func TestSessionSyncReportsUnavailableWithoutSuccessOrArchiveChanges(t *testing.T) {
+	s := testStore(t)
+	i := newImporter(s)
+	check(t, i.importDesktopCapture(desktopCaptureJob{ID: "target", updated: 110}, liveTestResult("target", true, "", cacheMessage("q", "user", "问题", 109)), false))
+	if _, err := i.startSessionSync("chatgpt:target"); err == nil {
+		t.Fatal("disabled capture accepted")
+	}
+	check(t, i.setDesktopCapture(true))
+	i.desktopRead = func(_ context.Context, _ []desktopCaptureJob, accept func(desktopCaptureResult) error) error {
+		return accept(desktopCaptureResult{Kind: "unavailable", Error: "connection"})
+	}
+	started, err := i.startSessionSync("chatgpt:target")
+	check(t, err)
+	if !started {
+		t.Fatal("not started")
+	}
+	report := waitSessionSync(t, i)
+	if len(report.Errors) != 1 || report.SessionResult != nil || report.Stage != "done_with_errors" || count(t, s, "messages") != 1 {
+		t.Fatal("unavailable incorrectly succeeded", report)
+	}
+	if _, err = i.startSessionSync("missing"); !errors.Is(err, errNotFound) {
+		t.Fatal("missing session accepted")
+	}
+	check(t, s.deleteSession(context.Background(), "chatgpt:target"))
+	if _, err = i.startSessionSync("chatgpt:target"); !errors.Is(err, errNotFound) {
+		t.Fatal("deleted chat resurrected")
+	}
+}
+
+func TestStreamingCaptureRefreshesBodyWithoutConversationTimestampChange(t *testing.T) {
+	s := testStore(t)
+	i := newImporter(s)
+	job := desktopCaptureJob{ID: "stream", updated: 110}
+	// A previous cache timestamp can exceed the native conversation timestamp.
+	check(t, i.importDesktopCapture(job, liveTestResult(job.ID, true, "", cacheMessage("a", "assistant", "初始内容", 120)), false))
+	m := cacheMessage("a", "assistant", "初始内容和正在输出的部分", 120)
+	obj(m)["status"] = "in_progress"
+	check(t, i.importDesktopCapture(job, liveTestResult(job.ID, true, "", m), false))
+	cp, err := one(s.DB, "SELECT value FROM settings WHERE key=?", desktopCheckpointPrefix+"chatgpt:stream")
+	check(t, err)
+	var checkpoint desktopCheckpoint
+	check(t, json.Unmarshal([]byte(str(cp["value"])), &checkpoint))
+	if !checkpoint.Streaming || desktopCaptureDue(checkpoint, 120, checkpoint.Attempt+60) || !desktopCaptureDue(checkpoint, 120, checkpoint.Attempt+301) {
+		t.Fatal("stream was permanently skipped", checkpoint)
+	}
+	row, err := one(s.DB, "SELECT metadata FROM sessions WHERE id='chatgpt:stream'")
+	check(t, err)
+	if strings.Contains(str(row["metadata"]), `"desktop_capture_complete":true`) {
+		t.Fatal("stream marked complete")
+	}
+	check(t, i.importDesktopCapture(job, liveTestResult(job.ID, true, "", cacheMessage("a", "assistant", "最终完整内容", 120)), false))
+	row, err = one(s.DB, "SELECT id FROM messages WHERE session_id='chatgpt:stream'")
+	check(t, err)
+	body, err := s.body(integer(row["id"]))
+	check(t, err)
+	if body != "最终完整内容" || count(t, s, "messages") != 1 {
+		t.Fatal("unchanged timestamp lost the final body", body)
+	}
+	recent := desktopCheckpoint{Updated: 10000, Attempt: 10010, Complete: true}
+	if desktopCaptureDue(recent, 10000, 10100) || !desktopCaptureDue(recent, 10000, 10311) || desktopCaptureDue(recent, 10000, 14000) {
+		t.Fatal("recent conversation recovery interval is wrong")
+	}
+}
+
+func TestSessionSyncContinuesPartialCursorAndDoesNotHideMissingFinalBody(t *testing.T) {
+	s := testStore(t)
+	i := newImporter(s)
+	check(t, i.setDesktopCapture(true))
+	job := desktopCaptureJob{ID: "partial", updated: 110}
+	check(t, i.importDesktopCapture(job, liveTestResult(job.ID, false, "older", cacheMessage("q", "user", "问题", 109)), false))
+	i.desktopRead = func(_ context.Context, jobs []desktopCaptureJob, accept func(desktopCaptureResult) error) error {
+		if len(jobs) != 1 || jobs[0].Cursor != "older" {
+			return errors.New("resume cursor lost")
+		}
+		empty := cacheMessage("a", "assistant", "", 110)
+		obj(empty)["channel"] = "final"
+		return accept(liveTestResult(job.ID, true, "", empty))
+	}
+	started, err := i.startSessionSync("chatgpt:partial")
+	check(t, err)
+	if !started {
+		t.Fatal("not started")
+	}
+	report := waitSessionSync(t, i)
+	if report.SessionResult == nil || report.SessionResult.MissingBodies != 1 || report.DesktopCaptured != 0 || len(report.Warnings) != 1 || count(t, s, "messages") != 1 {
+		t.Fatal("empty final answer hidden", report)
+	}
+}
