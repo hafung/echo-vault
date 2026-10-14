@@ -25,7 +25,7 @@ interface Session { id: string; title: string; project: string; cwd: string; pro
 interface Message { id: number; role: string; kind: string; phase: string; timestamp: number; body: string; truncated: boolean; length: number; metadata: { branch?: boolean; assets?: (string | { reference: string })[]; chatgpt_ui?: ChatGPTUI } }
 interface Page { session: Session; items: Message[]; offset: number; total: number; more: boolean }
 interface Stats { sessions: number; messages: number; events: number; projects: number; favorites: number; projects_list: { project: string; count: number; updated: number; hidden: number }[]; platforms: { platform: string; count: number }[]; providers: { provider: string; count: number }[]; last_sync: number; db_bytes: number; raw_bytes: number }
-interface Sync { running: boolean; automatic?: boolean; stage: string; done: number; total: number; imported: number; skipped: number; errors: { path: string; error: string }[]; warnings: { path: string; error: string }[]; duration?: number; started?: number; finished?: number; file: string }
+interface Sync { running: boolean; automatic?: boolean; stage: string; done: number; total: number; imported: number; skipped: number; errors: { path: string; error: string }[]; warnings: { path: string; error: string }[]; duration?: number; started?: number; finished?: number; file: string; desktop_captured?: number; desktop_pending?: number }
 interface BackupJob { id: string; mode: 'local' | 'download'; stage: 'copying' | 'compressing' | 'finishing' | 'ready' | 'error' | 'expired'; started: number; duration: number; done_bytes: number; total_bytes: number; path?: string; error?: string; format?: string; input_bytes?: number; output_bytes?: number }
 interface BackupStatus { directory: string; job: BackupJob | null }
 let backupState: BackupStatus | null = null, backupStarting = false, backupPolling = false;
@@ -408,7 +408,7 @@ window.matchMedia('(min-width:901px)').addEventListener('change', applySidebar);
 applySidebar();
 function resetFilters() { state.platform='';state.provider='';state.from='';state.to='';state.all=false; ['#platform-filter','#provider-filter','#date-from','#date-to'].forEach(id => (document.querySelector(id) as HTMLInputElement).value='');input('#search-all').checked=false;$('#filter-dot').hidden=true;readerCache.clear(); }
 async function sourcesDialog(open = true) {
-  try { const [data, backup] = await Promise.all([api<{sources:Source[];chatgpt:string}>('/sources'), api<BackupStatus>('/backup/status')]); backupState = backup; const s = state.stats; const report=state.sync;
+  try { const [data, backup] = await Promise.all([api<{sources:Source[];chatgpt:string;desktop_capture?:{enabled:boolean;supported:boolean;port:number}}>('/sources'), api<BackupStatus>('/backup/status')]); backupState = backup; const s = state.stats; const report=state.sync;
     $('#sources-summary').innerHTML = `<div><span>当前可见对话</span><b>${num(s?.sessions||0)}</b></div><div><span>档案大小</span><b>${size(s?.db_bytes||0)}</b></div><div><span>上次同步</span><b class="sync-date">${relative(s?.last_sync||0)}</b></div>`;
     $('#sources-content').innerHTML = `
       <div class="sources-grid">
@@ -416,7 +416,12 @@ async function sourcesDialog(open = true) {
           <h3 class="section-label">${icon('Database')}对话来源 <span>${data.sources.length}</span></h3>
           <div class="source-list">${data.sources.map(source=>`<div class="source-row"><span class="source-icon">${icon(source.platform==='Windows'?'Monitor':source.kind==='ChatGPT'?'MessagesSquare':'Terminal')}</span><div><b>${esc(source.platform)} · ${esc(source.kind)}</b><code>${esc(source.path)}</code></div><span class="source-status ${source.exists?'':'unavailable'}"><i></i>${source.exists?'可读取':'暂不可用'}</span></div>`).join('') || '<p class="source-empty">暂无来源，添加路径或导入文件即可收录。</p>'}</div>
           <form id="add-source-form" class="path-form"><input id="source-path" aria-label="添加来源路径" placeholder=".codex、桌面 Chat 缓存或导出路径"><button class="button" type="submit">添加来源</button></form>
-          <div class="dialog-note">${icon('MessagesSquare')}<span>自动发现 Windows 桌面应用的 Chat 正文缓存。只收录已缓存的内容；缺少历史时，在桌面应用打开对话并向前翻阅，再点击同步。缓存可能被清理，完整历史仍可通过官方导出补充。</span></div>
+          <div class="dialog-note">${icon('MessagesSquare')}<span>自动发现 Windows 桌面应用的 Chat 正文缓存。磁盘缓存可能只包含部分分页；可启用下面的主动补全，或通过官方导出补充历史。</span></div>
+          <div class="desktop-capture-settings">
+            <label><input id="desktop-capture-enabled" type="checkbox" ${data.desktop_capture?.enabled?'checked':''} ${data.desktop_capture?.supported?'':'disabled'}>桌面主动补全</label>
+            <p>${data.desktop_capture?.supported?'先双击项目中的 <b>Start ChatGPT Enhanced.cmd</b>，再启用此选项。启动器会重启一次 Desktop；自动同步只读取已登录会话的历史分页，不会重启 Desktop。':'此选项目前支持 Windows 和 WSL。'}</p>
+            <p>每轮分批处理；未读完的长对话下轮继续，完成的历史跳过重复读取。${report?.desktop_captured?` 上轮补全 ${num(report.desktop_captured)} 个会话。`:''}${report?.desktop_pending?` 待继续 ${num(report.desktop_pending)} 个。`:''}</p>
+          </div>
           <div class="import-section">
             <div><h3>导入 ChatGPT 导出文件</h3><p>支持官方 conversations.json / ZIP，保留全部对话分支，与桌面缓存按消息 ID 合并。</p><a href="https://help.openai.com/en/articles/7260999-exporting-your-chatgpt-history-and-data" target="_blank" rel="noopener noreferrer">如何导出 ChatGPT 数据 ${icon('ArrowUpRight')}</a></div>
             <label class="button import-label">${icon('Upload')}导入文件<input id="import-file" type="file" accept=".json,.zip" hidden></label>
@@ -447,6 +452,7 @@ async function sourcesDialog(open = true) {
       </div>
       <div class="sources-footer"><div class="preservation-note">${icon('ShieldCheck')}<div><b>原记录只读，档案由你管理</b><p>原文件删除、会话归档或来源断开，档案仍保留；主动删除的对话仅在完整重新扫描时可重新收录。</p></div></div><button id="full-sync" class="text-button">${icon('RefreshCw')}完整重新扫描</button></div>`;
     $('#add-source-form').onsubmit=async e=>{e.preventDefault();try{await post('/sources',{path:input('#source-path').value});toast('来源已添加，点击同步收录记录');await sourcesDialog(false);}catch(error){handle(error);}};
+    input('#desktop-capture-enabled').onchange=async()=>{const toggle=input('#desktop-capture-enabled');const enabled=toggle.checked;toggle.disabled=true;try{await post('/desktop-capture',{enabled});toast(enabled?'已启用桌面主动补全，开始同步':'已关闭桌面主动补全');if(enabled)await startSync();}catch(error){toggle.checked=!enabled;handle(error);}finally{toggle.disabled=false;}};
     input('#import-file').onchange=async()=>{const file=input('#import-file').files?.[0];if(!file)return;try{toast('正在导入 '+file.name);await api('/import',{method:'POST',headers:{'X-Echo-Request':'1','X-Filename':encodeURIComponent(file.name)},body:file});toast('文件已导入，正在收录对话');pollSync();}catch(error){handle(error);}};
     $('#full-sync').onclick=()=>{if(window.confirm('完整重新扫描会重新收录已删除的对话（原始来源仍可读取时）。继续扫描？'))startSync(true);};
     $('#backup-link').onclick=()=>startArchiveBackup('download');
@@ -606,7 +612,7 @@ async function pollSync() {
   let checked = false;
   try { const previous=state.sync;const report=await api<Sync>('/sync');state.sync=report;checked=true;
     const button=$('#sync-button');button.classList.toggle('syncing',report.running);button.querySelector('span')!.textContent=report.running?'正在同步':'同步对话';(button as HTMLButtonElement).disabled=report.running;
-    if(report.running){$('#sync-status').innerHTML=`${icon('RefreshCw','spinning')} 正在收录 ${report.done} / ${report.total} <span class="sync-file">${esc(report.file)}</span>`;if(report.done%10===0)refreshStats().catch(handle);}
+    if(report.running){$('#sync-status').innerHTML=`${icon('RefreshCw','spinning')} ${report.stage==='chatgpt_desktop_live'?'正在补全桌面历史':`正在收录 ${report.done} / ${report.total}`} <span class="sync-file">${esc(report.file)}</span>`;if(report.done%10===0)refreshStats().catch(handle);}
     else {$('#sync-status').innerHTML=`<i class="status-dot"></i> ${report.finished?`${report.errors.length?'同步完成，部分来源待重试':'档案已更新'} · ${num(report.imported)} 条新增 / 更新 · ${report.duration}s`:'准备就绪'}`;if(previous&&(previous.running||report.finished!==previous.finished)){readerCache.clear();await refreshStats();await loadList();if(!report.automatic||report.errors.length)toast(report.errors.length?'同步完成，部分来源未读取；详情见数据与来源':`同步完成 · ${num(report.imported)} 条新增或更新`);if((document.querySelector('#sources-dialog') as HTMLDialogElement).open)sourcesDialog(false);}}
   }catch(error){if(!state.sync)$('#sync-status').innerHTML='<i class="status-dot offline"></i> 服务暂时未连接';}
   finally{syncBusy=false;syncTimer=window.setTimeout(pollSync,state.sync?.running?1200:8000);if(checked)maybeAutoSync();}

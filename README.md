@@ -23,10 +23,11 @@ Use the app's backup button when it is running: copying only the live `.sqlite` 
 You write code in Codex and discuss plans, research, and ideas in Chat. Finding an answer later means switching between them. Echo Vault brings those ChatGPT conversations into the same archive, ready to search, read, favorite, and back up alongside your coding history.
 
 - **Collect everyday chats without repeated exports.** Automatically discover cached ChatGPT conversations from Chat mode in the Windows desktop app. Keep Echo Vault open to sync new content roughly every five minutes.
+- **Fill gaps with optional Desktop enhanced sync.** Run `Start ChatGPT Enhanced.cmd`, then enable **桌面主动补全** in Data and sources. Echo Vault uses Desktop's logged-in page to read older conversation pages in batches. The dedicated launcher restarts Desktop once when needed; automatic sync never restarts it.
 - **Add your fuller history.** Import an official ChatGPT export, preserving conversation branches and combining it with already collected content without duplicates.
 - **Keep your own copy.** Read collected conversation text offline and take it to another computer with a complete backup.
 
-Automatic collection covers content cached by the desktop app. To collect earlier messages, open the conversation there and scroll back before syncing. Echo Vault does not currently fetch your entire cloud history through live sync.
+Default collection covers content cached by the desktop app. Enhanced sync supplements Desktop conversations already collected by Echo Vault, persists pagination progress, and merges by message ID. It does not enumerate every cloud conversation in the account; official exports remain available for account-wide imports.
 
 ## Stop switching between Windows and WSL to find a conversation
 

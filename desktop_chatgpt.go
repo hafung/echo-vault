@@ -23,6 +23,7 @@ import (
 
 const desktopCacheKind = "ChatGPT Desktop"
 const cacheReadLimit = 32 << 20
+const desktopPartialCacheWarning = "磁盘缓存只包含部分分页；已保存可读取的正文，可在数据与来源启用桌面主动补全，或通过官方导出补充历史"
 
 // Chromium's blockfile HTTP cache. Only the active index and conversation response
 // streams are read; authentication stores, cookies and unrelated bodies are ignored.
@@ -366,7 +367,14 @@ func (i *Importer) desktopChatGPT(source Source, full bool) error {
 		i.update(func(s *SyncStatus) { s.Imported += n })
 		page := obj(c["page_info"])
 		if page["has_previous_page"] == true || page["has_next_page"] == true {
-			i.issue(str(first(c["title"], entry.sid)), errors.New("本地缓存包含部分分页；已保留可读取的消息，打开并向前翻阅历史后可再次同步补充"), true)
+			row, e := one(i.Store.DB, "SELECT metadata FROM sessions WHERE id=?", "chatgpt:"+entry.sid)
+			var meta M
+			if e == nil {
+				json.Unmarshal([]byte(str(row["metadata"])), &meta)
+			}
+			if meta["desktop_capture_complete"] != true {
+				i.issue(str(first(c["title"], entry.sid)), errors.New(desktopPartialCacheWarning), true)
+			}
 		}
 	}
 	if len(entries) == 0 {

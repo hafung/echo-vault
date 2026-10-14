@@ -130,7 +130,11 @@ func (a *App) get(w http.ResponseWriter, r *http.Request) error {
 		if e != nil {
 			return e
 		}
-		jsonResponse(w, M{"sources": v, "chatgpt": "自动收录 Windows 桌面应用 Chat 正文缓存；完整历史可通过官方 JSON / ZIP 导出补充。"})
+		capture, e := a.Importer.desktopCaptureSettings()
+		if e != nil {
+			return e
+		}
+		jsonResponse(w, M{"sources": v, "desktop_capture": capture, "chatgpt": "自动收录 Windows 桌面应用 Chat 正文缓存；可选桌面主动补全读取历史分页，官方 JSON / ZIP 导出也可补充。"})
 		return nil
 	case "/api/backup":
 		return a.backup(w, r)
@@ -244,6 +248,20 @@ func (a *App) post(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		jsonResponse(w, M{"ok": true})
+		return nil
+	case "/api/desktop-capture":
+		enabled, ok := v["enabled"].(bool)
+		if !ok {
+			return errors.New("请指定桌面主动补全的启用状态")
+		}
+		if err := a.Importer.setDesktopCapture(enabled); err != nil {
+			return err
+		}
+		settings, err := a.Importer.desktopCaptureSettings()
+		if err != nil {
+			return err
+		}
+		jsonResponse(w, settings)
 		return nil
 	case "/api/projects/visibility":
 		project := str(v["project"])

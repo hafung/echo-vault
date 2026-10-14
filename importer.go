@@ -31,19 +31,21 @@ type Issue struct {
 	Error string `json:"error"`
 }
 type SyncStatus struct {
-	Running   bool    `json:"running"`
-	Automatic bool    `json:"automatic"`
-	Stage     string  `json:"stage"`
-	Done      int     `json:"done"`
-	Total     int     `json:"total"`
-	Imported  int     `json:"imported"`
-	Skipped   int     `json:"skipped"`
-	Errors    []Issue `json:"errors"`
-	Warnings  []Issue `json:"warnings"`
-	File      string  `json:"file"`
-	Started   float64 `json:"started"`
-	Finished  float64 `json:"finished"`
-	Duration  float64 `json:"duration"`
+	Running         bool    `json:"running"`
+	Automatic       bool    `json:"automatic"`
+	Stage           string  `json:"stage"`
+	Done            int     `json:"done"`
+	Total           int     `json:"total"`
+	Imported        int     `json:"imported"`
+	Skipped         int     `json:"skipped"`
+	Errors          []Issue `json:"errors"`
+	Warnings        []Issue `json:"warnings"`
+	File            string  `json:"file"`
+	Started         float64 `json:"started"`
+	Finished        float64 `json:"finished"`
+	Duration        float64 `json:"duration"`
+	DesktopCaptured int     `json:"desktop_captured"`
+	DesktopPending  int     `json:"desktop_pending"`
 }
 type Importer struct {
 	Store *Store
@@ -419,6 +421,9 @@ func (i *Importer) run(full bool) {
 	if files, e := query(i.Store.DB, "SELECT path FROM files"); e == nil {
 		for _, f := range files {
 			p := str(f["path"])
+			if strings.HasPrefix(p, "desktop-live::") {
+				continue
+			}
 			base := strings.Split(p, "::")[0]
 			missing := 0
 			if !exists(base) {
@@ -460,6 +465,7 @@ func (i *Importer) run(full bool) {
 		}
 		i.update(func(s *SyncStatus) { s.Done++ })
 	}
+	i.captureDesktopChats(full)
 	if _, e := i.Store.Write.Exec("PRAGMA optimize"); e != nil {
 		i.issue("索引维护", e, true)
 	}
@@ -1194,13 +1200,32 @@ func (i *Importer) chatgptConversation(c M, path string, generation int64, full 
 		return 0, nil
 	}
 	staleCache := false
+	previous, previousErr := one(tx, "SELECT updated,title,model,metadata FROM sessions WHERE id=?", sid)
+	if previousErr != nil && !errors.Is(previousErr, errNotFound) {
+		return 0, previousErr
+	}
 	if original != nil && stamp(c["update_time"]) > 0 {
-		if previous, err := one(tx, "SELECT updated,title,model FROM sessions WHERE id=?", sid); err == nil && number(previous["updated"]) > stamp(c["update_time"]) {
+		if previous != nil && number(previous["updated"]) > stamp(c["update_time"]) {
 			staleCache = true
 			c["title"], c["default_model_slug"] = previous["title"], previous["model"]
 		}
 	}
-	e = i.Store.session(tx, sid, M{"title": str(first(c["title"], "ChatGPT 对话")), "project": "ChatGPT", "platform": platform, "provider": "ChatGPT", "created": stamp(c["create_time"]), "updated": stamp(c["update_time"]), "model": str(c["default_model_slug"]), "metadata": jsonText(M{"current_node": c["current_node"], "branch_count": len(nodes), "desktop_cache": original != nil, "cache_partial": obj(c["page_info"])["has_previous_page"] == true || obj(c["page_info"])["has_next_page"] == true})})
+	var oldMeta M
+	if previous != nil {
+		json.Unmarshal([]byte(str(previous["metadata"])), &oldMeta)
+	}
+	page := obj(c["page_info"])
+	capture := obj(c["echo_desktop_capture"])
+	complete := capture["complete"] == true || original != nil && oldMeta["desktop_capture_complete"] == true && previous != nil && number(previous["updated"]) >= stamp(c["update_time"])
+	current := c["current_node"]
+	if original != nil && page["has_next_page"] == true && oldMeta["current_node"] != nil {
+		current = oldMeta["current_node"]
+	}
+	meta := M{"current_node": current, "branch_count": len(nodes), "desktop_cache": original != nil, "cache_partial": !complete && (page["has_previous_page"] == true || page["has_next_page"] == true), "desktop_capture_complete": complete}
+	if capture["pages"] != nil {
+		meta["desktop_capture_pages"] = capture["pages"]
+	}
+	e = i.Store.session(tx, sid, M{"title": str(first(c["title"], "ChatGPT 对话")), "project": "ChatGPT", "platform": platform, "provider": "ChatGPT", "created": stamp(c["create_time"]), "updated": stamp(c["update_time"]), "model": str(c["default_model_slug"]), "metadata": jsonText(meta)})
 	if e != nil {
 		tx.Rollback()
 		return 0, e
