@@ -18,6 +18,16 @@ Your imported conversations, original records, collected images, favorites, and 
 
 Use the app's backup button when it is running: copying only the live `.sqlite` file can miss recent changes in its companion WAL file. Backups include everything already collected in the archive; unreadable attachments and conversations you have never imported are outside it.
 
+## Bring your ChatGPT conversations home, too
+
+You write code in Codex and discuss plans, research, and ideas in Chat. Finding an answer later means switching between them. Echo Vault brings those ChatGPT conversations into the same archive, ready to search, read, favorite, and back up alongside your coding history.
+
+- **Collect everyday chats without repeated exports.** Automatically discover cached ChatGPT conversations from Chat mode in the Windows desktop app. Keep Echo Vault open to sync new content roughly every five minutes.
+- **Add your fuller history.** Import an official ChatGPT export, preserving conversation branches and combining it with already collected content without duplicates.
+- **Keep your own copy.** Read collected conversation text offline and take it to another computer with a complete backup.
+
+Automatic collection covers content cached by the desktop app. To collect earlier messages, open the conversation there and scroll back before syncing. Echo Vault does not currently fetch your entire cloud history through live sync.
+
 ## Stop switching between Windows and WSL to find a conversation
 
 Codex history can be scattered across your Windows host, WSL users, and archived sessions. Echo Vault brings readable sources into one place.
@@ -25,10 +35,8 @@ Codex history can be scattered across your Windows host, WSL users, and archived
 - Discovers local Codex records, including Windows user folders mounted in WSL.
 - Includes both active and archived sessions, with support for older and newer record formats.
 - Lets you add source paths yourself, including Windows paths such as `C:\Users\you\.codex` when running in WSL.
-- Imports ChatGPT's `conversations.json` or a ZIP containing it, preserving conversation branches.
-- Collects cached chats from the Windows ChatGPT desktop app and combines them with official exports, avoiding duplicates.
 
-Source files are read without being changed. Other WSL distributions must be available through a readable path. Desktop Chat imports include only cached content, which may be cleared or contain partial pages. Open a conversation and scroll back in Desktop before syncing to collect newly cached history. Official exports can supply the complete history; there is no live cloud sync.
+Source files are read without being changed. Other WSL distributions must be available through a readable path.
 
 ## Find the answer you remember, even when you forget the title
 
