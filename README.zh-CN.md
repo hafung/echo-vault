@@ -1,12 +1,16 @@
-# 回声 · Echo Vault
+# GPT Vault
 
 [English](README.md) | **简体中文**
 
-**把散落在 Codex 和 ChatGPT 里的对话，收进一个由你自己掌握的本地档案。**
+**在本地收录、搜索和备份你的 ChatGPT 与 Codex 对话。**
 
 明明前几周和 AI 解决过这个问题，再想找时，却不记得是哪段对话：在 Windows 上？在 WSL 里？还是在 ChatGPT？换电脑以后，这些记录还能带走吗？
 
-回声就是给这些对话安一个家：集中保存，找回当时的答案，看清回答里的文字和图片，需要时完整备份、随身带走。
+GPT Vault 给这些对话安一个家：集中保存，找回当时的答案，看清回答里的文字和图片，需要时完整备份、随身带走。
+
+![GPT Vault 将 ChatGPT 与 Codex 对话集中展示，并保留回答中的 Markdown 排版和表格。](docs/images/conversation.png)
+
+*所有截图均使用虚构的项目、会话与路径。*
 
 ## 一个 SQLite 文件走天下！
 
@@ -20,18 +24,18 @@
 
 ## 云端聊过的 ChatGPT 对话，也能收进本地
 
-代码在 Codex 里写，方案、分析和灵感在 Chat 里聊，再找答案时却要来回切换。回声把这些 ChatGPT 对话也收进同一个档案，和代码对话一起搜索、阅读、收藏和备份。
+代码在 Codex 里写，方案、分析和灵感在 Chat 里聊，再找答案时却要来回切换。GPT Vault把这些 ChatGPT 对话也收进同一个档案，和代码对话一起搜索、阅读、收藏和备份。
 
-- **日常收录不用反复导出。** 自动发现 Windows 桌面应用 Chat 模式中已缓存的 ChatGPT 对话。回声页面保持打开时，约每 5 分钟自动同步新增内容。
-- **桌面主动补全（可选）。** 双击 `Start ChatGPT Enhanced.cmd`，再在「数据与来源」启用「桌面主动补全」，借助 Desktop 当前登录状态分批读取历史分页，补充磁盘缓存遗漏的内容。专用启动器首次会重启 Desktop；自动同步不会重启它。
+- **日常收录不用反复导出。** 自动发现 Windows 桌面应用 Chat 模式中已缓存的 ChatGPT 对话。GPT Vault页面保持打开时，约每 5 分钟自动同步新增内容。
+- **桌面同步与历史补全（可选）。** 双击 `Start ChatGPT Enhanced.cmd`，再在「数据与来源」启用「桌面同步与历史补全」，借助 Desktop 当前登录状态检查最近 20 个会话，读取尚未落盘的新会话正文，并分批补充历史分页。专用启动器首次会重启 Desktop；自动同步不会重启它。
 - **完整历史可以补充。** 支持导入 ChatGPT 官方导出文件，保留对话分支，与已收录的内容合并，避免重复。
 - **聊过的内容，自己留一份。** 已收录的正文可以离线查阅，也能跟着完整备份搬到另一台电脑。
 
-默认收录范围取决于桌面应用已缓存的内容。主动补全会处理已经收录的 Desktop 会话，保存分页进度并与已有消息合并，不会枚举账号中所有云端会话；完整账号历史仍可通过官方导出补录。
+默认收录范围取决于桌面应用已写入磁盘缓存的内容；刚聊完的会话也可能尚未落盘，等待或再次同步不保证能发现。启用桌面同步与历史补全后，每轮主动检查最近 20 个未归档会话，优先读取新会话和最近更新的正文，再补充已收录 Desktop 会话的历史分页。分页进度会保存，消息按 ID 合并；不会枚举账号中所有云端会话，完整账号历史仍可通过官方导出补录。
 
 ## WSL 和宿主机的 Codex 记录，终于能一起看了
 
-Windows 一份，WSL 一份，归档里还有一份。回声把能读取到的记录汇到同一个地方。
+Windows 一份，WSL 一份，归档里还有一份。GPT Vault把能读取到的记录汇到同一个地方。
 
 - 自动发现本地 Codex 记录，包括 WSL 中挂载的 Windows 用户目录。
 - 同时收录普通会话和归档会话，兼容新旧记录格式。
@@ -48,6 +52,8 @@ Windows 一份，WSL 一份，归档里还有一份。回声把能读取到的�
 
 多个关键词用空格隔开，查找同时包含这些词的内容；双引号用于完整短语。`Ctrl / ⌘ K` 打开全局搜索，`Ctrl / ⌘ F` 搜索当前对话。
 
+![深色模式下跨项目搜索，在结果列表和对话正文中高亮命中内容。](docs/images/search-dark.png)
+
 ## 用更舒服的方式，重新读一遍
 
 按项目浏览，阅读排版后的 Markdown，复制代码，打开对话里的本地文件链接。工具调用和上下文可以折叠，字号可以调整，深浅主题随手切换。很长的对话分段加载，读到哪里再加载哪里。
@@ -60,7 +66,7 @@ Windows 一份，WSL 一份，归档里还有一份。回声把能读取到的�
 
 ## ChatGPT 的新式图文回答，也能好好读
 
-在 ChatGPT 里看得好好的回答，保存后却少了一段文字、丢了图片，推荐卡片只剩半句话？回声支持 ChatGPT 的新式图文回答，让重新查阅时也能看到重点。
+在 ChatGPT 里看得好好的回答，保存后却少了一段文字、丢了图片，推荐卡片只剩半句话？GPT Vault支持 ChatGPT 的新式图文回答，让重新查阅时也能看到重点。
 
 - **文字和排版一起保留。** 推荐卡片、分栏、表格、图示和引用链接都能阅读，卡片里的正文也能完整展开。
 - **图片有迹可循。** 保留图片说明和来源，点击即可加载；原记录没有图片时，也会显示说明。
@@ -79,8 +85,8 @@ Markdown、代码块和普通表格继续沿用原有阅读方式。滑块、表
 从源码构建，需要 **Node.js 22+、pnpm 和 Go 1.26+**：
 
 ```bash
-git clone https://github.com/hafung/echo-vault.git
-cd echo-vault
+git clone https://github.com/hafung/gpt-vault.git
+cd gpt-vault
 pnpm install --frozen-lockfile
 pnpm build
 pnpm start
@@ -88,30 +94,32 @@ pnpm start
 
 打开 **http://localhost:8765**，点击右上角的 **同步对话**。在 **数据与来源** 中添加来源、导入 ChatGPT 导出文件，或管理备份。
 
-构建后，Windows 可在资源管理器中双击 **Start Echo Vault.cmd**，无需再运行 `pnpm start`，会自动打开浏览器。位于 WSL 的项目会自动在对应发行版中启动；已有服务时只打开页面。可为此文件创建桌面快捷方式，并最小化启动窗口。页面保持打开时，约每 5 分钟自动增量同步。
+构建后，Windows 可在资源管理器中双击 **Start GPT Vault.cmd**，无需再运行 `pnpm start`，会自动打开浏览器。位于 WSL 的项目会自动在对应发行版中启动；已有服务时只打开页面。可为此文件创建桌面快捷方式，并最小化启动窗口。页面保持打开时，约每 5 分钟自动增量同步。
 
 应用界面目前为中文；README 提供中英文切换。
 
 构建完成后，也可以直接运行程序：
 
 ```bash
-./bin/echo-vault
-./bin/echo-vault --port 8765 --data /path/to/echo.sqlite
+./bin/gpt-vault
+./bin/gpt-vault --port 8765 --data /path/to/echo.sqlite
 ```
 
-默认档案位于启动目录下的 `data/echo.sqlite`。服务仅监听 `127.0.0.1`，适合本机个人使用。
+默认档案仍位于启动目录下的 `data/echo.sqlite`，改名后直接沿用已有数据。原来的 `Start Echo Vault.cmd` 快捷方式也可继续启动 GPT Vault。服务仅监听 `127.0.0.1`，适合本机个人使用。
 
 ## 备份与恢复
 
 在 **数据与来源** 中，把完整备份保存到目录，或直接下载。备份会生成一致快照，包含已提交的数据、收藏、隐藏状态、原始记录、搜索索引和已收录的附件。备份期间仍可阅读和同步。
+
+![管理 Windows 与 WSL 来源、生成压缩备份，并将完整档案恢复到独立文件。](docs/images/backup.png)
 
 在同一面板恢复 `.sqlite` 或 `.sqlite.zst` 备份：程序会验证文件，恢复为一个独立档案，并显示启动命令。当前档案会保留。
 
 也可以通过命令行恢复到一个新文件：
 
 ```bash
-./bin/echo-vault --restore /path/to/backup.sqlite.zst --data /new/path/echo.sqlite
-./bin/echo-vault --data /new/path/echo.sqlite
+./bin/gpt-vault --restore /path/to/backup.sqlite.zst --data /new/path/echo.sqlite
+./bin/gpt-vault --data /new/path/echo.sqlite
 ```
 
 压缩可以减少保存和传输的体积，具体效果取决于内容。两种格式都保留完整档案。

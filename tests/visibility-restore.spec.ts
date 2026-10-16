@@ -85,7 +85,7 @@ test('compressed backup progress and complete restore instructions are shown sep
   await page.route('**/api/restore/status',route=>route.fulfill({json:{job}}));
   await page.route('**/api/restore',route=>{
     expect(route.request().postDataJSON().path).toBe('D:/备份/echo.sqlite.zst');
-    job={id:'restore-ui',stage:'ready',duration:4,done_bytes:100,total_bytes:100,path:'/tmp/restored.sqlite',command:"./bin/echo-vault --data '/tmp/restored.sqlite'"};
+    job={id:'restore-ui',stage:'ready',duration:4,done_bytes:100,total_bytes:100,path:'/tmp/restored.sqlite',command:"./bin/gpt-vault --data '/tmp/restored.sqlite'"};
     return route.fulfill({json:{job}});
   });
   await page.goto('/');

@@ -39,13 +39,13 @@ try {
         try { $version = Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/version" -TimeoutSec 1; if ($version.webSocketDebuggerUrl) { $ready=$true;break } } catch {}
         Start-Sleep -Milliseconds 500
     } while ([DateTime]::UtcNow -lt $deadline)
-    if (!$ready) { throw 'Desktop did not open the local capture interface. Regular Echo Vault cache sync is still available.' }
+    if (!$ready) { throw 'Desktop did not open the local capture interface. Regular GPT Vault cache sync is still available.' }
     $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
     if (@($listeners | Where-Object LocalAddress -notin @('127.0.0.1','::1')).Count) {
         Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'ChatGPT.exe' -and $_.CommandLine -match "--remote-debugging-port=$port" -and $_.CommandLine -notmatch '--type=' } | ForEach-Object { Stop-Process -Id $_.ProcessId }
         Start-Process -FilePath $executable -WorkingDirectory (Split-Path -Parent $executable)
         throw 'Desktop was restored to regular mode because the interface was not bound only to localhost.'
     }
-    Write-Host 'Ready. Enable Desktop enhanced sync in Echo Vault > Data and sources.'
-    Write-Host 'Echo Vault never restarts Desktop during automatic sync.'
+    Write-Host 'Ready. Enable Desktop enhanced sync in GPT Vault > Data and sources.'
+    Write-Host 'GPT Vault never restarts Desktop during automatic sync.'
 } catch { [Console]::Error.WriteLine($_.Exception.Message);exit 1 }

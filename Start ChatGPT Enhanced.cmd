@@ -1,7 +1,7 @@
 @echo off
 cd /d "%SystemRoot%"
 cls
-title ChatGPT Desktop - Echo Vault enhanced sync
+title ChatGPT Desktop - GPT Vault enhanced sync
 echo This launcher restarts ChatGPT Desktop once to enable enhanced sync.
 echo Subsequent launches reuse the running enhanced Desktop.
 echo.

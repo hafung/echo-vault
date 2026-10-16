@@ -1,17 +1,18 @@
 {
-  "name": "echo-vault",
+  "name": "gpt-vault",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build:web": "tsc --noEmit && vite build",
-    "build:server": "CGO_ENABLED=0 GOTOOLCHAIN=local go build -buildvcs=false -trimpath -ldflags=\"-s -w\" -o bin/echo-vault .",
+    "build:server": "CGO_ENABLED=0 GOTOOLCHAIN=local go build -buildvcs=false -trimpath -ldflags=\"-s -w\" -o bin/gpt-vault .",
     "build": "pnpm build:web && pnpm build:server",
-    "start": "./bin/echo-vault",
-    "sync": "./bin/echo-vault --sync-only",
+    "start": "./bin/gpt-vault",
+    "sync": "./bin/gpt-vault --sync-only",
     "test": "GOTOOLCHAIN=local go test -buildvcs=false ./...",
     "test:e2e": "playwright test",
+    "screenshots": "node scripts/screenshots.mjs",
     "test:links": "node --test tests/local-paths.unit.test.mjs"
   },
   "dependencies": {

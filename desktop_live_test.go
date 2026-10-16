@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -140,6 +141,146 @@ func TestDesktopLiveFailedAccountReadsDoNotStarveOtherConversations(t *testing.T
 	if len(jobs) != 2 {
 		t.Fatal("failed conversation was never retried")
 	}
+}
+
+func TestDesktopDiscoveryImportsConversationWithoutAnyBodyCache(t *testing.T) {
+	i := newImporter(testStore(t))
+	check(t, i.setDesktopCapture(true))
+	calls := 0
+	updated := now()
+	i.desktopRead = func(_ context.Context, jobs []desktopCaptureJob, accept func(desktopCaptureResult) error) error {
+		calls++
+		if jobs == nil {
+			return accept(desktopCaptureResult{Kind: "recent", Recent: []desktopRecentConversation{{ID: "brand-new", Title: "刚聊完的新会话", UpdateTime: updated}}})
+		}
+		if count(t, i.Store, "sessions") != 0 || len(jobs) != 1 || jobs[0].ID != "brand-new" {
+			t.Fatal("discovery created a title-only session or missed the uncached conversation", jobs)
+		}
+		return accept(liveTestResult("brand-new", true, "", cacheMessage("q", "user", "尚未落盘的问题", 109), cacheMessage("a", "assistant", "尚未落盘的回答", 110)))
+	}
+	i.captureDesktopChats(false)
+	if calls != 2 || count(t, i.Store, "sessions") != 1 || count(t, i.Store, "messages") != 2 || len(i.status().Warnings) > 0 {
+		t.Fatal("uncached conversation was not imported", calls, i.status())
+	}
+	// The next automatic run must not refetch an unchanged completed conversation.
+	i.update(func(s *SyncStatus) { s.Automatic = true })
+	i.captureDesktopChats(false)
+	if calls != 3 {
+		t.Fatal("automatic discovery ignored the completed checkpoint", calls)
+	}
+}
+
+func TestDesktopDiscoveryPrioritizesNewUpdatesAndRespectsDeletionAndBackoff(t *testing.T) {
+	i := newImporter(testStore(t))
+	timestamp := now()
+	for n := 0; n < desktopCaptureBatch+2; n++ {
+		id := fmt.Sprintf("history-%d", n)
+		check(t, i.importDesktopCapture(desktopCaptureJob{ID: id, updated: 110}, liveTestResult(id, false, "older", cacheMessage("q", "user", "历史", 100)), false))
+	}
+	check(t, i.importDesktopCapture(desktopCaptureJob{ID: "changed", updated: 110}, liveTestResult("changed", true, "", cacheMessage("q", "user", "旧内容", 100)), false))
+	check(t, i.saveDesktopCheckpoint(desktopCaptureJob{ID: "changed"}, desktopCheckpoint{Updated: 110, Attempt: timestamp, RetryAfter: timestamp + 1800, Complete: true}))
+	check(t, i.importDesktopCapture(desktopCaptureJob{ID: "deleted", updated: 110}, liveTestResult("deleted", true, "", cacheMessage("q", "user", "删除", 100)), false))
+	check(t, i.Store.deleteSession(context.Background(), "chatgpt:deleted"))
+	recent := []desktopRecentConversation{
+		{ID: "new", Title: "新会话", UpdateTime: timestamp},
+		{ID: "changed", Title: "最近又聊过", UpdateTime: timestamp - 1},
+		{ID: "deleted", UpdateTime: timestamp + 1},
+		{ID: "../invalid", UpdateTime: timestamp + 2},
+	}
+	jobs, err := i.desktopCaptureCandidates(false, timestamp, recent...)
+	check(t, err)
+	if len(jobs) != desktopCaptureBatch+4 || jobs[0].ID != "new" || jobs[1].ID != "changed" || jobs[1].Cursor != "" {
+		t.Fatal("new conversations/updates were queued behind history or lost to backoff", jobs)
+	}
+	for _, job := range jobs {
+		if job.ID == "deleted" || job.ID == "../invalid" {
+			t.Fatal("discovery resurrected a deletion or accepted an invalid ID")
+		}
+	}
+	if desktopCaptureDue(desktopCheckpoint{Updated: timestamp, RetryAfter: timestamp + 1800}, timestamp, timestamp) {
+		t.Fatal("unchanged failed reads must retain their retry delay")
+	}
+}
+
+func TestDesktopDiscoveryManualSyncRechecksFreshUnchangedAnswer(t *testing.T) {
+	i := newImporter(testStore(t))
+	timestamp := now()
+	check(t, i.importDesktopCapture(desktopCaptureJob{ID: "fresh", updated: timestamp}, liveTestResult("fresh", true, "", cacheMessage("q", "user", "问题", 109)), false))
+	recent := desktopRecentConversation{ID: "fresh", UpdateTime: timestamp}
+	jobs, err := i.desktopCaptureCandidates(false, timestamp+1, recent)
+	check(t, err)
+	if len(jobs) != 1 || jobs[0].Cursor != "" {
+		t.Fatal("manual sync skipped a fresh completed checkpoint", jobs)
+	}
+	i.update(func(s *SyncStatus) { s.Automatic = true })
+	jobs, err = i.desktopCaptureCandidates(false, timestamp+1, recent)
+	check(t, err)
+	if len(jobs) != 0 {
+		t.Fatal("automatic sync ignored the normal refresh interval", jobs)
+	}
+}
+
+func TestDesktopDiscoveryDoesNotKeepRereadingFirstBatchAheadOfUnseenChats(t *testing.T) {
+	i := newImporter(testStore(t))
+	i.update(func(s *SyncStatus) { s.Automatic = true })
+	timestamp := now()
+	recent := make([]desktopRecentConversation, 20)
+	for n := range recent {
+		recent[n] = desktopRecentConversation{ID: fmt.Sprintf("recent-%02d", n), UpdateTime: timestamp - float64(n)}
+	}
+	jobs, err := i.desktopCaptureCandidates(false, timestamp, recent...)
+	check(t, err)
+	for _, job := range jobs[:desktopCaptureBatch] {
+		check(t, i.importDesktopCapture(job, liveTestResult(job.ID, true, "", cacheMessage("q", "user", "已读过", 100)), false))
+	}
+	jobs, err = i.desktopCaptureCandidates(false, timestamp+automaticSyncInterval+1, recent...)
+	check(t, err)
+	if len(jobs) != 20 || jobs[0].ID != "recent-08" {
+		t.Fatal("first batch starved the remaining newly discovered conversations", jobs)
+	}
+}
+
+func TestDesktopDiscoveryFailureStillReadsExistingHistoryAndDefaultsOff(t *testing.T) {
+	i := newImporter(testStore(t))
+	calls := 0
+	i.desktopRead = func(_ context.Context, jobs []desktopCaptureJob, accept func(desktopCaptureResult) error) error {
+		calls++
+		if jobs == nil {
+			return accept(desktopCaptureResult{Kind: "error", Status: 503})
+		}
+		return accept(liveTestResult("known", true, "", cacheMessage("a", "assistant", "仍能同步", 110)))
+	}
+	i.captureDesktopChats(false)
+	if calls != 0 {
+		t.Fatal("discovery implicitly enabled live reads")
+	}
+	check(t, i.setDesktopCapture(true))
+	check(t, i.importDesktopCapture(desktopCaptureJob{ID: "known", updated: 110}, liveTestResult("known", false, "older", cacheMessage("q", "user", "已收录", 109)), false))
+	i.captureDesktopChats(false)
+	if calls != 2 || count(t, i.Store, "messages") != 2 || len(i.status().Warnings) != 1 || !strings.Contains(i.status().Warnings[0].Error, "503") {
+		t.Fatal("list failure prevented existing history from syncing", calls, i.status())
+	}
+}
+
+func TestDesktopRecentReadProbe(t *testing.T) {
+	if os.Getenv("ECHO_DESKTOP_DISCOVERY_TEST") == "" {
+		t.Skip("set ECHO_DESKTOP_DISCOVERY_TEST with Desktop enhanced mode open")
+	}
+	i := newImporter(testStore(t))
+	recent := i.discoverDesktopChats()
+	if len(recent) == 0 || len(i.status().Warnings) > 0 {
+		t.Fatal("recent conversation discovery failed", i.status().Warnings)
+	}
+	jobs, err := i.desktopCaptureCandidates(false, now(), recent...)
+	check(t, err)
+	if len(jobs) == 0 || count(t, i.Store, "sessions") != 0 {
+		t.Fatal("discovery failed or created title-only sessions")
+	}
+	i.captureDesktopJobs(jobs[:1], false, false)
+	if count(t, i.Store, "messages") == 0 || len(i.status().Warnings) > 0 {
+		t.Fatal("uncached recent conversation read failed", i.status().Warnings)
+	}
+	t.Logf("Discovered %d recent conversations; imported %d records without disk cache", len(recent), count(t, i.Store, "messages"))
 }
 
 // Optional end-to-end verification against an explicitly started localhost

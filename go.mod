@@ -1,4 +1,4 @@
-module echo-vault
+module gpt-vault
 
 go 1.26.0
 

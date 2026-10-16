@@ -46,7 +46,7 @@ type sessionSyncResult struct {
 }
 
 func desktopCaptureDue(checkpoint desktopCheckpoint, updated, timestamp float64) bool {
-	if checkpoint.RetryAfter > timestamp {
+	if checkpoint.RetryAfter > timestamp && checkpoint.Updated >= updated {
 		return false
 	}
 	interval := float64(24 * 60 * 60)
@@ -63,17 +63,25 @@ type desktopCaptureJob struct {
 	title      string
 	updated    float64
 	checkpoint desktopCheckpoint
+	priority   int
+}
+
+type desktopRecentConversation struct {
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	UpdateTime any    `json:"update_time"`
 }
 
 type desktopCaptureResult struct {
-	Kind         string `json:"kind"`
-	ID           string `json:"id"`
-	Complete     bool   `json:"complete"`
-	Cursor       string `json:"cursor"`
-	Pages        int    `json:"pages"`
-	Status       int    `json:"status"`
-	Error        string `json:"error"`
-	Conversation M      `json:"conversation"`
+	Kind         string                      `json:"kind"`
+	ID           string                      `json:"id"`
+	Complete     bool                        `json:"complete"`
+	Cursor       string                      `json:"cursor"`
+	Pages        int                         `json:"pages"`
+	Status       int                         `json:"status"`
+	Error        string                      `json:"error"`
+	Conversation M                           `json:"conversation"`
+	Recent       []desktopRecentConversation `json:"recent"`
 }
 
 func desktopCaptureSupported() bool { return runtime.GOOS == "windows" || isWSL() }
@@ -88,7 +96,7 @@ func (i *Importer) desktopCaptureSettings() (M, error) {
 
 func (i *Importer) setDesktopCapture(enabled bool) error {
 	if enabled && !desktopCaptureSupported() {
-		return errors.New("桌面主动补全目前支持 Windows 和 WSL")
+		return errors.New("桌面同步与历史补全目前支持 Windows 和 WSL")
 	}
 	value := "0"
 	if enabled {
@@ -98,14 +106,14 @@ func (i *Importer) setDesktopCapture(enabled bool) error {
 	return err
 }
 
-func (i *Importer) desktopCaptureCandidates(full bool, timestamp float64) ([]desktopCaptureJob, error) {
+func (i *Importer) desktopCaptureCandidates(full bool, timestamp float64, recent ...desktopRecentConversation) ([]desktopCaptureJob, error) {
 	rows, err := query(i.Store.DB, `SELECT s.id,s.title,s.updated,c.value AS checkpoint FROM sessions s
 		LEFT JOIN settings c ON c.key=? || s.id
 		WHERE s.provider='ChatGPT' AND s.platform='Windows' AND json_extract(s.metadata,'$.desktop_cache')=1`, desktopCheckpointPrefix)
 	if err != nil {
 		return nil, err
 	}
-	jobs := []desktopCaptureJob{}
+	byID := map[string]desktopCaptureJob{}
 	for _, row := range rows {
 		id := strings.TrimPrefix(str(row["id"]), "chatgpt:")
 		if !desktopConversationID.MatchString(id) {
@@ -121,13 +129,78 @@ func (i *Importer) desktopCaptureCandidates(full bool, timestamp float64) ([]des
 		if full || checkpoint.Updated != updated || checkpoint.Complete {
 			cursor = ""
 		}
-		jobs = append(jobs, desktopCaptureJob{ID: id, Cursor: cursor, title: str(row["title"]), updated: updated, checkpoint: checkpoint})
+		priority := 0
+		if checkpoint.Streaming || checkpoint.MissingBodies > 0 || timestamp-updated < 60*60 {
+			priority = 1
+			if checkpoint.Updated < updated {
+				priority = 2
+			}
+		}
+		byID[id] = desktopCaptureJob{ID: id, Cursor: cursor, title: str(row["title"]), updated: updated, checkpoint: checkpoint, priority: priority}
+	}
+	for _, conversation := range recent {
+		id := conversation.ID
+		if !desktopConversationID.MatchString(id) {
+			continue
+		}
+		// Discovery never creates title-only sessions or restores local deletions.
+		if !full {
+			if _, e := one(i.Store.DB, "SELECT session_id FROM deleted_sessions WHERE session_id=?", "chatgpt:"+id); e == nil {
+				continue
+			} else if !errors.Is(e, errNotFound) {
+				return nil, e
+			}
+		}
+		row, e := one(i.Store.DB, "SELECT value FROM settings WHERE key=?", desktopCheckpointPrefix+"chatgpt:"+id)
+		if e != nil && !errors.Is(e, errNotFound) {
+			return nil, e
+		}
+		var checkpoint desktopCheckpoint
+		json.Unmarshal([]byte(str(row["value"])), &checkpoint)
+		updated := stamp(conversation.UpdateTime)
+		if local, e := one(i.Store.DB, "SELECT updated FROM sessions WHERE id=?", "chatgpt:"+id); e == nil {
+			updated = max(updated, number(local["updated"]))
+		} else if !errors.Is(e, errNotFound) {
+			return nil, e
+		}
+		// Manual sync rechecks fresh answers even when their update_time has not
+		// changed. Automatic runs retain their normal interval and failure backoff.
+		fresh := timestamp-updated < 60*60 || checkpoint.Streaming || checkpoint.MissingBodies > 0
+		manual := !i.status().Automatic && fresh && checkpoint.RetryAfter <= timestamp
+		if !full && !manual && !desktopCaptureDue(checkpoint, updated, timestamp) {
+			continue
+		}
+		cursor := checkpoint.Cursor
+		if full || checkpoint.Updated != updated || checkpoint.Complete {
+			cursor = ""
+		}
+		priority := 0
+		if fresh {
+			priority = 1
+		}
+		if checkpoint.Attempt == 0 || checkpoint.Updated < updated {
+			priority = 2
+		}
+		byID[id] = desktopCaptureJob{ID: id, Cursor: cursor, title: conversation.Title, updated: updated, checkpoint: checkpoint, priority: priority}
+	}
+	jobs := make([]desktopCaptureJob, 0, len(byID))
+	for _, job := range byID {
+		jobs = append(jobs, job)
 	}
 	sort.SliceStable(jobs, func(a, b int) bool {
-		if jobs[a].checkpoint.Attempt == jobs[b].checkpoint.Attempt {
+		if jobs[a].priority != jobs[b].priority {
+			return jobs[a].priority > jobs[b].priority
+		}
+		if jobs[a].priority > 0 && jobs[a].updated != jobs[b].updated {
 			return jobs[a].updated > jobs[b].updated
 		}
-		return jobs[a].checkpoint.Attempt < jobs[b].checkpoint.Attempt
+		if jobs[a].checkpoint.Attempt == jobs[b].checkpoint.Attempt && jobs[a].updated != jobs[b].updated {
+			return jobs[a].updated > jobs[b].updated
+		}
+		if jobs[a].checkpoint.Attempt != jobs[b].checkpoint.Attempt {
+			return jobs[a].checkpoint.Attempt < jobs[b].checkpoint.Attempt
+		}
+		return jobs[a].ID < jobs[b].ID
 	})
 	return jobs, nil
 }
@@ -150,7 +223,7 @@ func (i *Importer) startSessionSync(sid string) (bool, error) {
 		return false, err
 	}
 	if settings["enabled"] != true {
-		return false, errors.New("请先在数据与来源启用桌面主动补全，并通过 Start ChatGPT Enhanced.cmd 启动 Desktop")
+		return false, errors.New("请先在数据与来源启用桌面同步与历史补全，并通过 Start ChatGPT Enhanced.cmd 启动 Desktop")
 	}
 	job := desktopCaptureJob{ID: id, title: str(row["title"]), updated: number(row["updated"])}
 	checkpoint, err := one(i.Store.DB, "SELECT value FROM settings WHERE key=?", desktopCheckpointPrefix+sid)
@@ -181,7 +254,7 @@ func (i *Importer) startSessionSync(sid string) (bool, error) {
 func desktopUnavailable(reason string) error {
 	switch reason {
 	case "module":
-		return errors.New("当前 Desktop 版本的读取模块不兼容；请更新 Echo Vault 后重试")
+		return errors.New("当前 Desktop 版本的读取模块不兼容；请更新 GPT Vault 后重试")
 	case "connection":
 		return errors.New("无法连接 Desktop 的已登录页面；请关闭多余窗口后重试，或重新运行 Start ChatGPT Enhanced.cmd")
 	case "page":
@@ -197,7 +270,7 @@ func (i *Importer) saveDesktopCheckpoint(job desktopCaptureJob, checkpoint deskt
 }
 
 func readDesktopCapture(ctx context.Context, jobs []desktopCaptureJob, accept func(desktopCaptureResult) error) error {
-	input, err := json.Marshal(M{"port": desktopCapturePort, "jobs": jobs})
+	input, err := json.Marshal(M{"port": desktopCapturePort, "jobs": jobs, "discover": jobs == nil})
 	if err != nil {
 		return err
 	}
@@ -367,15 +440,17 @@ func (i *Importer) importDesktopCapture(job desktopCaptureJob, result desktopCap
 func (i *Importer) captureDesktopChats(full bool) {
 	settings, err := i.desktopCaptureSettings()
 	if err != nil {
-		i.issue("桌面主动补全", err, true)
+		i.issue("桌面同步与历史补全", err, true)
 		return
 	}
 	if settings["enabled"] != true {
 		return
 	}
-	jobs, err := i.desktopCaptureCandidates(full, now())
+	i.update(func(s *SyncStatus) { s.Stage = "chatgpt_desktop_live"; s.File = "发现最近 Chat 会话" })
+	recent := i.discoverDesktopChats()
+	jobs, err := i.desktopCaptureCandidates(full, now(), recent...)
 	if err != nil {
-		i.issue("桌面主动补全", err, true)
+		i.issue("桌面同步与历史补全", err, true)
 		return
 	}
 	if len(jobs) == 0 {
@@ -386,6 +461,40 @@ func (i *Importer) captureDesktopChats(full bool) {
 		jobs = jobs[:desktopCaptureBatch]
 	}
 	i.captureDesktopJobs(jobs, full, false)
+}
+
+func (i *Importer) discoverDesktopChats() []desktopRecentConversation {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	reader := i.desktopRead
+	if reader == nil {
+		reader = readDesktopCapture
+	}
+	var recent []desktopRecentConversation
+	received := false
+	err := reader(ctx, nil, func(result desktopCaptureResult) error {
+		received = true
+		switch result.Kind {
+		case "recent":
+			if len(result.Recent) > 20 {
+				return errors.New("最近会话列表超过本轮读取范围")
+			}
+			recent = result.Recent
+		case "unavailable":
+			return desktopUnavailable(result.Error)
+		default:
+			return fmt.Errorf("最近会话列表读取失败（HTTP %d）；本轮继续同步磁盘缓存和已收录会话", result.Status)
+		}
+		return nil
+	})
+	if err == nil && !received {
+		err = errors.New("桌面未返回最近会话列表；本轮继续同步磁盘缓存和已收录会话")
+	}
+	if err != nil {
+		i.issue("发现最近 Chat 会话", err, true)
+		return nil
+	}
+	return recent
 }
 
 func (i *Importer) captureDesktopJobs(jobs []desktopCaptureJob, full, targeted bool) {
@@ -402,7 +511,7 @@ func (i *Importer) captureDesktopJobs(jobs []desktopCaptureJob, full, targeted b
 	received := map[string]bool{}
 	err := reader(ctx, jobs, func(result desktopCaptureResult) error {
 		if result.Kind == "unavailable" {
-			i.issue("桌面主动补全", desktopUnavailable(result.Error), !targeted)
+			i.issue("桌面同步与历史补全", desktopUnavailable(result.Error), !targeted)
 			for _, job := range jobs {
 				received[job.ID] = true
 			}
@@ -427,7 +536,7 @@ func (i *Importer) captureDesktopJobs(jobs []desktopCaptureJob, full, targeted b
 		return i.importDesktopCapture(job, result, full)
 	})
 	if err != nil {
-		i.issue("桌面主动补全", err, !targeted)
+		i.issue("桌面同步与历史补全", err, !targeted)
 	}
 	if targeted && err == nil && !received[jobs[0].ID] {
 		i.issue(jobs[0].title, errors.New("桌面读取未返回此会话，未能重新同步；请重试"), false)

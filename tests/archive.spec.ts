@@ -5,7 +5,7 @@ test('desktop navigation, sources, search, reader, copy, favorites and export', 
   page.on('pageerror', e => errors.push(e.message));
   await page.goto('/');
   await expect(page.locator('#all-count')).not.toHaveText('—');
-  await expect(page.locator('.welcome h2')).toContainText('每一次对话');
+  await expect(page.locator('.welcome h2')).toContainText('你的 AI 对话');
   await expect(page.locator('.conversation-card').first()).toBeVisible();
   await page.screenshot({ path: 'artifacts/desktop-overview.png' });
   await page.getByRole('button', { name: '数据与来源' }).click();

@@ -6,13 +6,14 @@ import (
 	"testing"
 )
 
-func TestLauncherOnlyReusesEchoVaultService(t *testing.T) {
+func TestLauncherReusesGPTVaultAndLegacyService(t *testing.T) {
 	for _, test := range []struct {
 		name, body string
 		status     int
 		expected   bool
 	}{
-		{"echo-vault", `{"app":"echo-vault"}`, 200, true},
+		{"gpt-vault", `{"app":"gpt-vault"}`, 200, true},
+		{"legacy echo-vault", `{"app":"echo-vault"}`, 200, true},
 		{"other app", `{"app":"other"}`, 200, false},
 		{"html", `<html>another local service</html>`, 200, false},
 		{"unavailable", `{"app":"echo-vault"}`, 503, false},
@@ -26,7 +27,7 @@ func TestLauncherOnlyReusesEchoVaultService(t *testing.T) {
 				w.Write([]byte(test.body))
 			}))
 			defer server.Close()
-			if echoVaultRunning(server.URL) != test.expected {
+			if gptVaultRunning(server.URL) != test.expected {
 				t.Fatal("incorrect service detection")
 			}
 		})

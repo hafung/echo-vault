@@ -123,7 +123,7 @@ func (a *App) get(w http.ResponseWriter, r *http.Request) error {
 		jsonResponse(w, a.Importer.status())
 		return nil
 	case "/api/health":
-		jsonResponse(w, M{"app": "echo-vault"})
+		jsonResponse(w, M{"app": "gpt-vault"})
 		return nil
 	case "/api/sources":
 		v, e := a.Importer.sources()
@@ -134,7 +134,7 @@ func (a *App) get(w http.ResponseWriter, r *http.Request) error {
 		if e != nil {
 			return e
 		}
-		jsonResponse(w, M{"sources": v, "desktop_capture": capture, "chatgpt": "自动收录 Windows 桌面应用 Chat 正文缓存；可选桌面主动补全读取历史分页，官方 JSON / ZIP 导出也可补充。"})
+		jsonResponse(w, M{"sources": v, "desktop_capture": capture, "chatgpt": "自动收录 Windows 桌面应用 Chat 正文缓存；可选桌面同步与历史补全发现最近会话并读取正文与历史分页，官方 JSON / ZIP 导出也可补充。"})
 		return nil
 	case "/api/backup":
 		return a.backup(w, r)
@@ -252,7 +252,7 @@ func (a *App) post(w http.ResponseWriter, r *http.Request) error {
 	case "/api/desktop-capture":
 		enabled, ok := v["enabled"].(bool)
 		if !ok {
-			return errors.New("请指定桌面主动补全的启用状态")
+			return errors.New("请指定桌面同步与历史补全的启用状态")
 		}
 		if err := a.Importer.setDesktopCapture(enabled); err != nil {
 			return err
@@ -396,7 +396,7 @@ func (a *App) export(w http.ResponseWriter, r *http.Request, sid, format, suffix
 		return err
 	}
 	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("Content-Disposition", `attachment; filename="echo-conversation`+suffix+`"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="gpt-vault-conversation`+suffix+`"`)
 	stat, err := f.Stat()
 	if err != nil {
 		return err
@@ -426,7 +426,7 @@ func (a *App) backup(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/vnd.sqlite3")
-	w.Header().Set("Content-Disposition", `attachment; filename="echo-vault-`+time.Now().Format("20060102-150405")+`.sqlite"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="gpt-vault-`+time.Now().Format("20060102-150405")+`.sqlite"`)
 	w.Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
 	_, err = io.Copy(w, f)
 	return err
@@ -489,8 +489,8 @@ func main() {
 	flag.Parse()
 	browserURL := fmt.Sprintf("http://localhost:%d", *port)
 	maintenance := *syncOnly || *restore != "" || *reindex || *compact || *deduplicate || *dialogue
-	if *openBrowser && !maintenance && echoVaultRunning(browserURL) {
-		log.Printf("Echo Vault 已在运行，打开 %s；此启动窗口将退出", browserURL)
+	if *openBrowser && !maintenance && gptVaultRunning(browserURL) {
+		log.Printf("GPT Vault 已在运行，打开 %s；此启动窗口将退出", browserURL)
 		if err := openArchiveBrowser(browserURL); err != nil {
 			os.Exit(1)
 		}
@@ -575,7 +575,7 @@ func main() {
 	server := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", *port), Handler: app, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
 	listener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
-		if *openBrowser && echoVaultRunning(browserURL) {
+		if *openBrowser && gptVaultRunning(browserURL) {
 			if err := openArchiveBrowser(browserURL); err != nil {
 				log.Fatal(err)
 			}
@@ -591,7 +591,7 @@ func main() {
 		defer cancel()
 		server.Shutdown(ctx)
 	}()
-	log.Printf("回声 → http://localhost:%d", *port)
+	log.Printf("GPT Vault → http://localhost:%d", *port)
 	if *openBrowser {
 		go openArchiveBrowser(browserURL)
 	}

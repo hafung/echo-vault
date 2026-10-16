@@ -1,4 +1,4 @@
-# Echo Vault usage and maintenance guide
+# GPT Vault usage and maintenance guide
 
 **English** | [简体中文](guide.zh-CN.md) · [Back to README](../README.md)
 
@@ -12,14 +12,14 @@ pnpm build
 pnpm start
 ```
 
-The frontend is embedded in the executable. Once built, `./bin/echo-vault` runs without the frontend build directory or any development tools. By default, it serves `http://localhost:8765` and stores the archive at `data/echo.sqlite`, relative to the working directory.
+The frontend is embedded in the executable. Once built, `./bin/gpt-vault` runs without the frontend build directory or any development tools. By default, it serves `http://localhost:8765` and stores the archive at `data/echo.sqlite`, relative to the working directory.
 
-On Windows, double-click `Start Echo Vault.cmd` in Explorer, or create a desktop shortcut to it. WSL UNC paths select the corresponding distribution and Linux project directory; ordinary Windows directories use `bin\echo-vault.exe`. Minimize the launcher window to keep the service running. On Linux / WSL, run `bash scripts/start-echo-vault.sh`. The executable's `--open-browser` option opens the browser after startup and reuses a running Echo Vault service. The launchers do not install dependencies, build the app, or configure login startup.
+On Windows, double-click `Start GPT Vault.cmd` in Explorer, or create a desktop shortcut to it. WSL UNC paths select the corresponding distribution and Linux project directory; ordinary Windows directories use `bin\gpt-vault.exe`. Minimize the launcher window to keep the service running. On Linux / WSL, run `bash scripts/start-gpt-vault.sh`. The executable's `--open-browser` option opens the browser after startup and reuses a running GPT Vault service. The launchers do not install dependencies, build the app, or configure login startup.
 
 For a new service, the launcher stays open and can be minimized. Launching again opens the existing page and exits the new launcher without stopping the service. Failures pause the window to show the error. CMD may initially report that a WSL UNC current directory is unsupported; the launcher uses absolute script paths and `wsl.exe --cd`, so this does not prevent startup. It clears that initial notice and shows the launcher behavior instead.
 
 ```bash
-./bin/echo-vault --port 8765 --data /path/to/echo.sqlite
+./bin/gpt-vault --port 8765 --data /path/to/echo.sqlite
 ```
 
 For frontend development, start the app, then run `pnpm dev` and open `http://localhost:5178`.
@@ -27,7 +27,7 @@ For frontend development, start the app, then run `pnpm dev` and open `http://lo
 After building the frontend, you can cross-compile a Windows executable:
 
 ```bash
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 GOTOOLCHAIN=local go build -buildvcs=false -trimpath -ldflags="-s -w" -o bin/echo-vault.exe .
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 GOTOOLCHAIN=local go build -buildvcs=false -trimpath -ldflags="-s -w" -o bin/gpt-vault.exe .
 ```
 
 ## Sources and preservation
@@ -43,10 +43,10 @@ While a page remains open, an incremental sync starts about five minutes after t
 - Deleting or truncating a source, losing access to it, or removing nodes from a ChatGPT export does not delete previously imported messages. Updates may change the current view while preserving earlier imported raw event versions.
 - Embedded images and readable local images are copied into the archive and deduplicated. Missing attachments retain their references. Remote image URLs are not fetched automatically.
 - Windows ChatGPT Desktop Chat response caches are discovered automatically, including Windows profiles mounted in WSL. The Chromium blockfile active index is read without modifying the cache; only ChatGPT conversation response bodies are decoded, supporting Brotli, gzip, deflate and uncompressed JSON. Selected entry and response bytes are checked twice; incomplete or changing entries report a warning and retry on the next sync. You can also add the `…\Default\Cache\Cache_Data` directory manually.
-- Both full `mapping` responses and paginated `messages` are supported. Pages merge by stable message ID and messages are ordered by time. Cache entries may expire, be evicted, or contain only recent pages and omit other branches. Open the conversation and scroll back in Desktop before syncing to collect additional cached pages. Imported messages and original response JSON survive cache eviction; titles alone are never treated as conversation bodies. Authentication files and cookies are not read.
-- Optional Desktop enhanced sync supports Windows and WSL and is off by default. Run `Start ChatGPT Enhanced.cmd`, then enable **桌面主动补全** in Data and sources. The dedicated launcher restarts Desktop only when needed and reuses an existing enhanced instance. Quitting Desktop and launching its normal shortcut returns it to normal mode. Routine sync never starts, closes, navigates, or restarts Desktop.
+- Both full `mapping` responses and paginated `messages` are supported. Pages merge by stable message ID and messages are ordered by time. Cache entries may expire, be evicted, or contain only recent pages and omit other branches. Newly created chats may remain in Desktop memory even after an answer finishes; waiting alone does not guarantee a disk cache entry. Open the conversation and scroll back in Desktop before syncing to collect additional cached pages. Imported messages and original response JSON survive cache eviction; titles alone are never treated as conversation bodies. Authentication files and cookies are not read.
+- Optional Desktop enhanced sync supports Windows and WSL and is off by default. Run `Start ChatGPT Enhanced.cmd`, then enable **桌面同步与历史补全** in Data and sources. The dedicated launcher restarts Desktop only when needed and reuses an existing enhanced instance. Quitting Desktop and launching its normal shortcut returns it to normal mode. Routine sync never starts, closes, navigates, or restarts Desktop.
 - The helper connects only to the installed ChatGPT Desktop's CDP endpoint on `127.0.0.1:19222`, checks the listener owner and loopback binding, and discovers the request module in the current installation. It invokes the logged-in page's read-only pagination requests without exporting cookies or login tokens. It does not use the full snapshot endpoint that returned HTTP 403. This depends on Desktop internals; an incompatible update, signed-out page, or closed endpoint produces a warning while normal cache imports continue.
-- Enhanced sync supplements previously collected Windows Desktop Chat conversations. Each run processes up to eight conversations, up to twelve pages per conversation, with a shared read budget of about ninety seconds. Unfinished histories persist a resume cursor. Data commits before its checkpoint, so interruption may cause an idempotent reread but never skips uncommitted text. Conversations updated within the last hour, streaming answers, and missing bodies are rechecked about every five minutes; older completed histories are rechecked roughly daily; failed conversations retry after thirty minutes. Full scans also use batches. Deleting a conversation during a network read remains effective; incremental capture does not restore it.
+- Enhanced sync first requests the 20 most recently updated non-archived Chat conversations, discovering new chats without requiring a cached body or a previously imported session. Discovery alone never creates title-only sessions. New and recently updated conversations take priority over older history; existing Desktop conversations remain eligible when discovery fails. Each run processes up to eight conversations, up to twelve pages per conversation, with a shared read budget of about ninety seconds. Unfinished histories persist a resume cursor. Data commits before its checkpoint, so interruption may cause an idempotent reread but never skips uncommitted text. Conversations updated within the last hour, streaming answers, and missing bodies are rechecked about every five minutes; older completed histories are rechecked roughly daily; failed conversations retry after thirty minutes unless the conversation has since been updated. Manual sync also rechecks recent completed conversations without waiting for the automatic interval. Full scans also use batches. Deleting a conversation during a network read remains effective; incremental capture does not restore it.
 - The refresh icon at the top right of a Desktop Chat conversation rereads only that conversation, bypassing automatic batches, completed-history skipping, and failure cooldowns. Unfinished pagination resumes. The result reports page and dialogue counts, streaming or missing bodies, and actionable read failures. Open readers reload after sync. Requests revalidate the HTTP cache; finishing pagination does not guarantee the server provided every message body.
 - Official ChatGPT imports accept `conversations.json` or a ZIP containing it. All exported branches are retained; non-current branches are marked. Exports merge with cache imports and enhanced sync by conversation and message ID. Content that was not exported or cached and is not accessible to the current account cannot be recovered from a local index.
 
@@ -96,8 +96,8 @@ Backup uploads have a 1 TB limit; JSON / ZIP source imports have a separate 512 
 Offline restore requires a destination that does not already exist:
 
 ```bash
-./bin/echo-vault --restore /path/to/backup.sqlite.zst --data /new/path/echo.sqlite
-./bin/echo-vault --data /new/path/echo.sqlite
+./bin/gpt-vault --restore /path/to/backup.sqlite.zst --data /new/path/echo.sqlite
+./bin/gpt-vault --data /new/path/echo.sqlite
 ```
 
 An uncompressed SQLite backup can also be opened directly with `--data`. If it has an associated nonempty WAL, make an online backup first to retain committed changes. On a new machine, source paths may need updating; already imported history remains readable. Files in `data/imports` are retained for source import retries, while successfully imported content lives in the database.
@@ -107,12 +107,12 @@ An uncompressed SQLite backup can also be opened directly with `--data`. If it h
 Stop the running service before using commands that write to the same archive. Add `--data /path/to/echo.sqlite` when working with a nondefault archive.
 
 ```bash
-./bin/echo-vault --sync-only         # Incremental sync, then exit
-./bin/echo-vault --sync-only --full  # Rescan sources, keeping imported history
-./bin/echo-vault --reindex           # Rebuild all derived search indexes
-./bin/echo-vault --index-dialogue    # Rebuild conversation-text indexes only
-./bin/echo-vault --deduplicate       # Deduplicate raw blocks, keeping all versions
-./bin/echo-vault --compact           # Reclaim storage with SQLite VACUUM
+./bin/gpt-vault --sync-only         # Incremental sync, then exit
+./bin/gpt-vault --sync-only --full  # Rescan sources, keeping imported history
+./bin/gpt-vault --reindex           # Rebuild all derived search indexes
+./bin/gpt-vault --index-dialogue    # Rebuild conversation-text indexes only
+./bin/gpt-vault --deduplicate       # Deduplicate raw blocks, keeping all versions
+./bin/gpt-vault --compact           # Reclaim storage with SQLite VACUUM
 ```
 
 The implementation uses Go, SQLite with WAL and FTS5, and a TypeScript frontend. The SQLite driver does not require CGO.
@@ -131,3 +131,12 @@ pnpm test:e2e    # Chromium interaction tests
 Build the frontend before running Go tests because the server embeds `dist`. Browser tests require a running app and Playwright Chromium. Some browser tests expect populated conversation data, including Windows and WSL records; others use mocked responses. Run them against a disposable test archive. `ECHO_TEST_URL` sets the server URL; `ECHO_CHROMIUM` sets the browser executable. Screenshots go to `artifacts/`.
 
 Personal archives, attachments, builds, and test output are excluded from version control.
+
+## README screenshots
+
+```bash
+pnpm build:web
+pnpm screenshots
+```
+
+This renders the built interface with fictional projects, conversations, and paths, then writes three public images to `docs/images/`. All browser requests are intercepted; the script does not connect to a running app or open a personal archive. Playwright Chromium must be installed; `GPT_VAULT_CHROMIUM` can select an existing browser executable. Keep screenshots from personal archives in the ignored `artifacts/` directory.

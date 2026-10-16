@@ -30,14 +30,14 @@ test('Desktop capture is opt-in, persists the setting and uses ordinary sync wit
   });
   await page.goto('/');
   await page.locator('#sources-button').click();
-  const toggle=page.getByRole('checkbox',{name:'桌面主动补全'});
+  const toggle=page.getByRole('checkbox',{name:'桌面同步与历史补全'});
   await expect(toggle).not.toBeChecked();
   await toggle.check();
   await expect.poll(()=>settings.length).toBe(1);
   expect(settings[0]).toEqual({enabled:true});
   await expect.poll(()=>syncs.length).toBe(1);
   expect(syncs[0]).toEqual({full:false});
-  await expect(page.locator('#sync-status')).toContainText('正在补全桌面历史');
+  await expect(page.locator('#sync-status')).toContainText('正在同步桌面会话');
   await expect(toggle).toBeEnabled();
   await toggle.uncheck();
   await expect.poll(()=>settings.length).toBe(2);

@@ -1,11 +1,11 @@
 import './style.css';
-import { createElement, Search, Folder, MessagesSquare, Star, RefreshCw, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, X, Check, Download, Copy, SlidersHorizontal, Database, ShieldCheck, Terminal, PanelLeft, Moon, Sun, ArrowDown, ArrowUp, ArrowDownToLine, ArrowUpToLine, MoreHorizontal, FileText, Upload, CircleHelp, Monitor, Command, BookOpen, LoaderCircle, TextSearch, Layers, CheckCircle2, EyeOff, Eye, Trash2 } from 'lucide';
+import { createElement, Search, Folder, MessagesSquare, Star, RefreshCw, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, X, Check, Download, Copy, SlidersHorizontal, Database, ShieldCheck, Terminal, PanelLeft, Moon, Sun, ArrowDown, ArrowUp, ArrowDownToLine, ArrowUpToLine, MoreHorizontal, FileText, Upload, CircleHelp, Monitor, Command, BookOpen, LoaderCircle, Vault, TextSearch, Layers, CheckCircle2, EyeOff, Eye, Trash2 } from 'lucide';
 import { marked } from 'marked';
 import { localPathTarget, barePathPattern } from './local-paths';
 import { renderMessageContent, decorateMessageImages, type ChatGPTUI } from './message-content';
 
 type Node = Parameters<typeof createElement>[0];
-const icons: Record<string, Node> = { Search, Folder, MessagesSquare, Star, RefreshCw, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, X, Check, Download, Copy, SlidersHorizontal, Database, ShieldCheck, Terminal, PanelLeft, Moon, Sun, ArrowDown, ArrowUp, ArrowDownToLine, ArrowUpToLine, MoreHorizontal, FileText, Upload, CircleHelp, Monitor, Command, BookOpen, LoaderCircle, TextSearch, Layers, CheckCircle2, EyeOff, Eye, Trash2 };
+const icons: Record<string, Node> = { Search, Folder, MessagesSquare, Star, RefreshCw, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, X, Check, Download, Copy, SlidersHorizontal, Database, ShieldCheck, Terminal, PanelLeft, Moon, Sun, ArrowDown, ArrowUp, ArrowDownToLine, ArrowUpToLine, MoreHorizontal, FileText, Upload, CircleHelp, Monitor, Command, BookOpen, LoaderCircle, Vault, TextSearch, Layers, CheckCircle2, EyeOff, Eye, Trash2 };
 function icon(name: string, cls = '') { const svg = createElement(icons[name] || FileText); svg.setAttribute('class', 'icon ' + cls); svg.setAttribute('aria-hidden', 'true'); return svg.outerHTML; }
 function esc(value: unknown) { return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!); }
 function $(selector: string, root: ParentNode = document) { return root.querySelector<HTMLElement>(selector)!; }
@@ -64,7 +64,7 @@ function saveUrl(push = false) { const next = new URL(location.href); for (const
 
 $('#app').innerHTML = `
   <div class="sidebar-shell"><aside id="archive-sidebar" class="sidebar" aria-label="档案导航">
-    <a class="brand" href="/" aria-label="回声首页"><span class="brand-mark"><i></i><i></i><i></i></span><span>回声<small>ECHO VAULT</small></span></a>
+    <a class="brand" href="/" aria-label="GPT Vault 首页"><span class="brand-mark">${icon('Vault')}</span><span>GPT Vault<small>CHATGPT &amp; CODEX</small></span></a>
     <div class="nav-label">你的对话档案</div>
     <nav class="main-nav"><button data-nav="all" class="nav-item active">${icon('MessagesSquare')}<span>全部对话</span><b id="all-count">—</b></button><button data-nav="favorite" class="nav-item">${icon('Star')}<span>我的收藏</span><b id="favorite-count">0</b></button></nav>
     <div class="project-heading"><div class="project-heading-label"><span class="nav-label">项目空间</span><button id="show-hidden" class="icon-button visibility-toggle" type="button" aria-label="显示隐藏 / 归档" aria-pressed="${state.showHidden}" title="显示隐藏 / 归档">${icon(state.showHidden ? 'Eye' : 'EyeOff')}</button></div><span id="project-count">—</span></div>
@@ -91,7 +91,7 @@ $('#app').innerHTML = `
 
 function welcome() {
   const s = state.stats;
-  $('#reader-content').innerHTML = `<div class="welcome"><div class="welcome-top"><span class="eyebrow">A SPACE FOR YOUR THOUGHTS</span><button id="help-button" class="icon-button" aria-label="键盘快捷键" title="键盘快捷键">${icon('CircleHelp')}</button></div><div class="echo-art" aria-hidden="true"><div class="orbit orbit-1"></div><div class="orbit orbit-2"></div><div class="orbit orbit-3"></div><div class="art-center"><span class="brand-mark"><i></i><i></i><i></i></span></div><span class="art-dot dot-1"></span><span class="art-dot dot-2"></span><span class="art-line line-1"></span><span class="art-line line-2"></span><span class="art-label label-1">THOUGHTS</span><span class="art-label label-2">CONNECTIONS</span></div><span class="welcome-kicker">留住思考的轨迹</span><h2>每一次对话，<br>都值得被<span>记住。</span></h2><p>从一个灵感，到一个完成的项目。<br>把散落各处的对话，收进同一处安静的空间。</p><div class="welcome-stats"><div><b>${num(s?.sessions || 0)}</b><span>段对话</span></div><div><b>${num(s?.projects || 0)}</b><span>个项目空间</span></div><div><b>${num(s?.messages || 0)}</b><span>条记忆</span></div></div><div class="welcome-hint">${icon('ChevronLeft')} 选择一段对话，继续那时的思考 <span>或按 <kbd>Ctrl K</kbd> 搜索</span></div><div class="welcome-bottom"><span><i></i> 全部保存在你的设备上</span><span>YOUR THOUGHTS, KEPT CLOSE.</span></div></div>`;
+  $('#reader-content').innerHTML = `<div class="welcome"><div class="welcome-top"><span class="eyebrow">YOUR LOCAL CONVERSATION ARCHIVE</span><button id="help-button" class="icon-button" aria-label="键盘快捷键" title="键盘快捷键">${icon('CircleHelp')}</button></div><div class="vault-art" aria-hidden="true"><div class="orbit orbit-1"></div><div class="orbit orbit-2"></div><div class="orbit orbit-3"></div><div class="art-center"><span class="brand-mark">${icon('Vault')}</span></div><span class="art-dot dot-1"></span><span class="art-dot dot-2"></span><span class="art-line line-1"></span><span class="art-line line-2"></span><span class="art-label label-1">CHATGPT</span><span class="art-label label-2">CODEX</span></div><span class="welcome-kicker">CHATGPT · CODEX · 本地归档</span><h2>你的 AI 对话，<br>存入自己的<span>档案。</span></h2><p>集中收录 ChatGPT 与 Codex 对话。<br>本地搜索、阅读与备份，随时找回聊过的内容。</p><div class="welcome-stats"><div><b>${num(s?.sessions || 0)}</b><span>段对话</span></div><div><b>${num(s?.projects || 0)}</b><span>个项目空间</span></div><div><b>${num(s?.messages || 0)}</b><span>条记忆</span></div></div><div class="welcome-hint">${icon('ChevronLeft')} 选择一段对话，继续那时的思考 <span>或按 <kbd>Ctrl K</kbd> 搜索</span></div><div class="welcome-bottom"><span><i></i> 全部保存在你的设备上</span><span>LOCAL. SEARCHABLE. YOURS.</span></div></div>`;
   $('#help-button').onclick = () => (document.querySelector('#help-dialog') as HTMLDialogElement).showModal();
 }
 
@@ -417,11 +417,11 @@ async function sourcesDialog(open = true) {
           <h3 class="section-label">${icon('Database')}对话来源 <span>${data.sources.length}</span></h3>
           <div class="source-list">${data.sources.map(source=>`<div class="source-row"><span class="source-icon">${icon(source.platform==='Windows'?'Monitor':source.kind==='ChatGPT'?'MessagesSquare':'Terminal')}</span><div><b>${esc(source.platform)} · ${esc(source.kind)}</b><code>${esc(source.path)}</code></div><span class="source-status ${source.exists?'':'unavailable'}"><i></i>${source.exists?'可读取':'暂不可用'}</span></div>`).join('') || '<p class="source-empty">暂无来源，添加路径或导入文件即可收录。</p>'}</div>
           <form id="add-source-form" class="path-form"><input id="source-path" aria-label="添加来源路径" placeholder=".codex、桌面 Chat 缓存或导出路径"><button class="button" type="submit">添加来源</button></form>
-          <div class="dialog-note">${icon('MessagesSquare')}<span>自动发现 Windows 桌面应用的 Chat 正文缓存。磁盘缓存可能只包含部分分页；可启用下面的主动补全，或通过官方导出补充历史。</span></div>
+          <div class="dialog-note">${icon('MessagesSquare')}<span>默认收录 Windows 桌面应用已写入磁盘的 Chat 正文缓存。刚聊完的会话也可能尚未落盘，等待或反复同步不保证能发现；启用下面的桌面同步后，会主动检查最近会话并读取正文。</span></div>
           <div class="desktop-capture-settings">
-            <label><input id="desktop-capture-enabled" type="checkbox" ${data.desktop_capture?.enabled?'checked':''} ${data.desktop_capture?.supported?'':'disabled'}>桌面主动补全</label>
-            <p>${data.desktop_capture?.supported?'先双击项目中的 <b>Start ChatGPT Enhanced.cmd</b>，再启用此选项。启动器会重启一次 Desktop；自动同步只读取已登录会话的历史分页，不会重启 Desktop。':'此选项目前支持 Windows 和 WSL。'}</p>
-            <p>每轮分批处理；未读完的长对话下轮继续，完成的历史跳过重复读取。${report?.desktop_captured?` 上轮补全 ${num(report.desktop_captured)} 个会话。`:''}${report?.desktop_pending?` 待继续 ${num(report.desktop_pending)} 个。`:''}</p>
+            <label><input id="desktop-capture-enabled" type="checkbox" ${data.desktop_capture?.enabled?'checked':''} ${data.desktop_capture?.supported?'':'disabled'}>桌面同步与历史补全</label>
+            <p>${data.desktop_capture?.supported?'先双击项目中的 <b>Start ChatGPT Enhanced.cmd</b>，再启用此选项。启动器会在需要时重启一次 Desktop；之后点击同步即可检查最近会话，无需切换或重新打开对话。':'此选项目前支持 Windows 和 WSL。'}</p>
+            <p>每轮检查最近 20 个会话，优先读取新会话和最近更新的正文，再分批补充历史。页面保持打开时约每 5 分钟自动同步；未读完的长对话下轮继续。${report?.desktop_captured?` 上轮补全 ${num(report.desktop_captured)} 个会话。`:''}${report?.desktop_pending?` 待继续 ${num(report.desktop_pending)} 个。`:''}</p>
           </div>
           <div class="import-section">
             <div><h3>导入 ChatGPT 导出文件</h3><p>支持官方 conversations.json / ZIP，保留全部对话分支，与桌面缓存按消息 ID 合并。</p><a href="https://help.openai.com/en/articles/7260999-exporting-your-chatgpt-history-and-data" target="_blank" rel="noopener noreferrer">如何导出 ChatGPT 数据 ${icon('ArrowUpRight')}</a></div>
@@ -433,7 +433,7 @@ async function sourcesDialog(open = true) {
           <h3 class="section-label">${icon('Download')}完整档案备份</h3>
           <p class="backup-description">包含所有正文、收藏、隐藏状态、索引、原始事件和已收录附件。</p>
           <label class="field-caption" for="backup-directory">保存目录</label>
-          <form id="backup-directory-form" class="path-form"><input id="backup-directory" aria-label="备份保存目录" value="${esc(backup.directory)}" placeholder="D:/备份/EchoVault"><button type="submit" class="button">记住位置</button></form>
+          <form id="backup-directory-form" class="path-form"><input id="backup-directory" aria-label="备份保存目录" value="${esc(backup.directory)}" placeholder="D:/备份/GPTVault"><button type="submit" class="button">记住位置</button></form>
           <p class="backup-directory-note">支持 Windows 路径；目录不存在时自动创建。</p>
           <label class="backup-format">备份格式<select id="backup-format" aria-label="备份格式"><option value="zstd">Zstandard · 快速压缩（推荐）</option><option value="zstd-small">Zstandard · 更小体积（较慢）</option><option value="sqlite">SQLite · 不压缩</option></select></label>
           <div class="backup-actions"><button id="backup-local" class="button primary">${icon('Folder')}备份到此目录</button><button id="backup-link" class="button">${icon('Download')}备份整个档案 · 下载</button></div>
@@ -444,7 +444,7 @@ async function sourcesDialog(open = true) {
           <h3 class="section-label">${icon('Upload')}恢复完整档案</h3>
           <p class="backup-description">支持 .sqlite / .sqlite.zst 完整备份，包含全部项目、对话、附件及隐藏状态。</p>
           <label class="field-caption" for="restore-path">备份文件路径</label>
-          <form id="restore-path-form" class="path-form"><input id="restore-path" aria-label="恢复备份路径" placeholder="D:/备份/echo.sqlite.zst"><button id="restore-path-button" class="button" type="submit">从路径恢复</button></form>
+          <form id="restore-path-form" class="path-form"><input id="restore-path" aria-label="恢复备份路径" placeholder="D:/备份/gpt-vault.sqlite.zst"><button id="restore-path-button" class="button" type="submit">从路径恢复</button></form>
           <p class="backup-directory-note">大文件推荐本机路径，无需浏览器上传。</p>
           <div class="restore-upload"><span>也可以上传备份文件</span><label class="button import-label">${icon('Upload')}选择完整备份<input id="restore-file" type="file" accept=".sqlite,.sqlite3,.db,.zst" hidden></label></div>
           <p class="backup-description">恢复到独立档案，当前文件继续保留。检查通过后，按提示重启服务切换。</p>
@@ -453,7 +453,7 @@ async function sourcesDialog(open = true) {
       </div>
       <div class="sources-footer"><div class="preservation-note">${icon('ShieldCheck')}<div><b>原记录只读，档案由你管理</b><p>原文件删除、会话归档或来源断开，档案仍保留；主动删除的对话仅在完整重新扫描时可重新收录。</p></div></div><button id="full-sync" class="text-button">${icon('RefreshCw')}完整重新扫描</button></div>`;
     $('#add-source-form').onsubmit=async e=>{e.preventDefault();try{await post('/sources',{path:input('#source-path').value});toast('来源已添加，点击同步收录记录');await sourcesDialog(false);}catch(error){handle(error);}};
-    input('#desktop-capture-enabled').onchange=async()=>{const toggle=input('#desktop-capture-enabled');const enabled=toggle.checked;toggle.disabled=true;try{await post('/desktop-capture',{enabled});toast(enabled?'已启用桌面主动补全，开始同步':'已关闭桌面主动补全');if(enabled)await startSync();}catch(error){toggle.checked=!enabled;handle(error);}finally{toggle.disabled=false;}};
+    input('#desktop-capture-enabled').onchange=async()=>{const toggle=input('#desktop-capture-enabled');const enabled=toggle.checked;toggle.disabled=true;try{await post('/desktop-capture',{enabled});toast(enabled?'已启用桌面同步与历史补全，开始同步':'已关闭桌面同步与历史补全');if(enabled)await startSync();}catch(error){toggle.checked=!enabled;handle(error);}finally{toggle.disabled=false;}};
     input('#import-file').onchange=async()=>{const file=input('#import-file').files?.[0];if(!file)return;try{toast('正在导入 '+file.name);await api('/import',{method:'POST',headers:{'X-Echo-Request':'1','X-Filename':encodeURIComponent(file.name)},body:file});toast('文件已导入，正在收录对话');pollSync();}catch(error){handle(error);}};
     $('#full-sync').onclick=()=>{if(window.confirm('完整重新扫描会重新收录已删除的对话（原始来源仍可读取时）。继续扫描？'))startSync(true);};
     $('#backup-link').onclick=()=>startArchiveBackup('download');
@@ -655,7 +655,7 @@ async function pollSync() {
   let checked = false;
   try { const previous=state.sync;const report=await api<Sync>('/sync');state.sync=report;checked=true;renderSessionSyncStatus();
     const button=$('#sync-button');button.classList.toggle('syncing',report.running);button.querySelector('span')!.textContent=report.running?'正在同步':'同步对话';(button as HTMLButtonElement).disabled=report.running;
-    if(report.running){$('#sync-status').innerHTML=`${icon('RefreshCw','spinning')} ${report.stage==='chatgpt_desktop_live'?'正在补全桌面历史':`正在收录 ${report.done} / ${report.total}`} <span class="sync-file">${esc(report.file)}</span>`;if(report.done%10===0)refreshStats().catch(handle);}
+    if(report.running){$('#sync-status').innerHTML=`${icon('RefreshCw','spinning')} ${report.stage==='chatgpt_desktop_live'?'正在同步桌面会话':`正在收录 ${report.done} / ${report.total}`} <span class="sync-file">${esc(report.file)}</span>`;if(report.done%10===0)refreshStats().catch(handle);}
     else {$('#sync-status').innerHTML=`<i class="status-dot"></i> ${report.finished?`${report.errors.length?'同步完成，部分来源待重试':'档案已更新'} · ${num(report.imported)} 条新增 / 更新 · ${report.duration}s`:'准备就绪'}`;if(previous&&(previous.running||report.finished!==previous.finished)){readerCache.clear();await refreshStats();await loadList();if(report.session_id)toast(sessionSyncMessage(report),report.errors.length>0);else if(!report.automatic||report.errors.length||report.warnings.length)toast(report.errors.length?'同步完成，部分来源未读取；详情见数据与来源':report.warnings.length?'同步完成，部分内容待补全；详情见数据与来源':`同步完成 · ${num(report.imported)} 条新增或更新`);if(!report.session_id||state.id===report.session_id)await reloadCurrentReader();if((document.querySelector('#sources-dialog') as HTMLDialogElement).open)sourcesDialog(false);}}
   }catch(error){if(!state.sync)$('#sync-status').innerHTML='<i class="status-dot offline"></i> 服务暂时未连接';}
   finally{syncBusy=false;syncTimer=window.setTimeout(pollSync,state.sync?.running?1200:8000);if(checked)maybeAutoSync();}

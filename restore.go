@@ -134,7 +134,7 @@ func (a *App) startRestore(w http.ResponseWriter, r *http.Request, path string) 
 	} else {
 		path = localPath(path)
 	}
-	dest := filepath.Join(folder, "echo-restored-"+id+".sqlite")
+	dest := filepath.Join(folder, "gpt-vault-restored-"+id+".sqlite")
 	a.updateRestore(id, func(j *restoreJob) { j.Stage = "restoring"; j.DoneBytes = 0; j.TotalBytes = 0 })
 	started = true
 	go func() {
@@ -154,7 +154,7 @@ func (a *App) startRestore(w http.ResponseWriter, r *http.Request, path string) 
 			} else {
 				j.Stage = "ready"
 				j.Path = dest
-				j.Command = "./bin/echo-vault --data '" + strings.ReplaceAll(dest, "'", "'\"'\"'") + "'"
+				j.Command = "./bin/gpt-vault --data '" + strings.ReplaceAll(dest, "'", "'\"'\"'") + "'"
 			}
 		})
 	}()
@@ -187,7 +187,7 @@ func restoreArchive(ctx context.Context, source, dest string, progress func(stri
 	}
 	compressed := bytes.Equal(header[:4], []byte{0x28, 0xb5, 0x2f, 0xfd})
 	if !compressed && string(header) != "SQLite format 3\x00" {
-		return errors.New("请选择 Echo Vault SQLite 或 Zstandard 压缩备份")
+		return errors.New("请选择 GPT Vault SQLite 或 Zstandard 压缩备份")
 	}
 	if !compressed {
 		if wal, err := os.Stat(source + "-wal"); err == nil && wal.Size() > 0 {
@@ -270,7 +270,7 @@ func validateArchive(ctx context.Context, path string) error {
 			return err
 		}
 		if n != 1 {
-			return errors.New("不是完整的 Echo Vault 档案：缺少 " + table)
+			return errors.New("不是完整的 GPT Vault 档案：缺少 " + table)
 		}
 	}
 	for _, q := range []string{
@@ -284,7 +284,7 @@ func validateArchive(ctx context.Context, path string) error {
 	} {
 		rows, err := db.QueryContext(ctx, q)
 		if err != nil {
-			return fmt.Errorf("Echo Vault 档案结构不兼容: %w", err)
+			return fmt.Errorf("GPT Vault 档案结构不兼容: %w", err)
 		}
 		if err = rows.Close(); err != nil {
 			return err

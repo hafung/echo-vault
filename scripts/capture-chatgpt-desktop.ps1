@@ -1,4 +1,4 @@
-# Invoked by Echo Vault, with a JSON job list on stdin. Only compact JSON records
+# Invoked by GPT Vault, with a JSON job list on stdin. Only compact JSON records
 # are written to stdout. This helper does not start, restart or navigate Desktop.
 $ErrorActionPreference = 'Stop'
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
@@ -86,6 +86,23 @@ try {
     $phase = 'connection'
     Open-Cdp $targets[0].webSocketDebuggerUrl $port
     $deadline = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + 90000
+    if ($inputValue.discover) {
+        $discovery = @'
+(async()=>{
+  try{
+    if(location.origin!=='app://-')throw Error('Unexpected page');
+    const {Request}=await import(__MODULE__);
+    const list=await Request.safeGet('/conversations',{parameters:{query:{offset:0,limit:20,order:'updated',is_archived:false,expand:false,exclude_conversation_origin:'tpp'}},additionalHeaders:{'Cache-Control':'no-cache'},signal:AbortSignal.timeout(15000)});
+    if(!Array.isArray(list.items))throw Error('Invalid list');
+    return JSON.stringify({kind:'recent',recent:list.items.slice(0,20).map(c=>({id:c.id,title:c.title,update_time:c.update_time}))});
+  }catch(error){return JSON.stringify({kind:'error',status:error.responseStatus||error.status||0})}
+})()
+'@
+        $expression = $discovery.Replace('__MODULE__',($module | ConvertTo-Json -Compress))
+        [Console]::Out.WriteLine((Invoke-Cdp $expression))
+        [Console]::Out.Flush()
+        exit 0
+    }
     $template = @'
 (async()=>{
   const job=__JOB__, deadline=__DEADLINE__;

@@ -1,4 +1,4 @@
-# Echo Vault 使用与维护指南
+# GPT Vault 使用与维护指南
 
 [English](guide.md) | **简体中文** · [返回首页](../README.zh-CN.md)
 
@@ -7,7 +7,7 @@
 ## 使用
 
 ```bash
-cd echo-vault
+cd gpt-vault
 pnpm start
 ```
 
@@ -23,9 +23,9 @@ pnpm build
 pnpm start
 ```
 
-独立运行：`./bin/echo-vault`；指定端口或数据路径：`./bin/echo-vault --port 8765 --data /path/to/echo.sqlite`。默认数据路径相对于运行目录，启动前应进入本项目。
+独立运行：`./bin/gpt-vault`；指定端口或数据路径：`./bin/gpt-vault --port 8765 --data /path/to/echo.sqlite`。默认数据路径相对于运行目录，启动前应进入本项目。
 
-一键启动：在 Windows 资源管理器中双击项目根目录的 `Start Echo Vault.cmd`，可以放一个该文件的快捷方式到桌面。脚本识别 `\\wsl.localhost\发行版\…` 和 `\\wsl$\发行版\…` 路径，并在对应 WSL 项目目录启动 Linux 可执行文件；普通 Windows 目录则使用 `bin\echo-vault.exe`。启动窗口负责保持服务运行，可最小化。Linux / WSL 也可运行 `bash scripts/start-echo-vault.sh`；`--open-browser` 会启动后打开浏览器，已有 Echo Vault 服务时仅打开页面。启动脚本不会安装依赖、自动构建或设置开机启动。
+一键启动：在 Windows 资源管理器中双击项目根目录的 `Start GPT Vault.cmd`，可以放一个该文件的快捷方式到桌面。脚本识别 `\\wsl.localhost\发行版\…` 和 `\\wsl$\发行版\…` 路径，并在对应 WSL 项目目录启动 Linux 可执行文件；普通 Windows 目录则使用 `bin\gpt-vault.exe`。启动窗口负责保持服务运行，可最小化。Linux / WSL 也可运行 `bash scripts/start-gpt-vault.sh`；`--open-browser` 会启动后打开浏览器，已有 GPT Vault 服务时仅打开页面。启动脚本不会安装依赖、自动构建或设置开机启动。
 
 首次启动时窗口保持运行，保留或最小化即可；重复双击时只打开已有服务的页面，新启动窗口会正常退出，不会停掉原服务。若启动失败，窗口会暂停并显示错误。CMD 从 WSL UNC 路径启动时可能先提示「UNC 路径不受支持，默认值设为 Windows 目录」；这只是当前目录的提示，入口仍通过绝对路径调用脚本，再用 `wsl.exe --cd` 进入正确的 Linux 项目目录。入口会清理这条提示并显示运行说明。
 
@@ -75,18 +75,18 @@ pnpm start
 
 压缩减少保存和传输大小，但本机生成总耗时会增加压缩步骤。正文、原始日志本来已经压缩，图片通常也已压缩，因此不能保证把数 GB 档案缩小几倍；更小体积档也取决于内容。若目标是最快完成本机备份，使用不压缩 SQLite 并直接保存到目录；需要减少传输量时选择快速压缩。没有为减小备份而省略原始数据或派生索引。
 
-- **备份到此目录**：填写目录后点击备份，位置保存在档案设置中；也可先点击「记住位置」。默认使用数据库旁的 `backups` 目录，支持 `D:\备份\EchoVault` 等 Windows 路径。程序直接在目标目录生成备份，不经浏览器传输，也不再从系统临时目录复制一次。每次使用独立文件名，保留已有备份；未完成的文件使用 `.partial` 后缀，完成写入后再改为 `.sqlite` 或 `.sqlite.zst`。
+- **备份到此目录**：填写目录后点击备份，位置保存在档案设置中；也可先点击「记住位置」。默认使用数据库旁的 `backups` 目录，支持 `D:\备份\GPTVault` 等 Windows 路径。程序直接在目标目录生成备份，不经浏览器传输，也不再从系统临时目录复制一次。每次使用独立文件名，保留已有备份；未完成的文件使用 `.partial` 后缀，完成写入后再改为 `.sqlite` 或 `.sqlite.zst`。
 - **备份整个档案 · 下载**：后台生成完整快照后，通过浏览器流式下载，不把整个档案读进 JavaScript 内存。生成的下载文件保留 1 小时；开始下一次备份会替换上一份临时下载文件。服务重启后需要重新生成下载备份。
 - 点击立即显示启动状态，复制期间显示真实百分比、已复制大小与耗时，完成后显示保存路径或再次下载按钮，失败显示原因并允许重试。关闭面板或刷新页面不会取消后台任务；关闭程序会中断任务。
 - 同时只运行一个界面备份任务，避免重复点击产生多个大副本。复制固定快照，期间仍可同步与阅读；不会因同步新增内容反复从头复制。更大的档案主要受磁盘读写与可用空间限制，项目数、对话数不限制导出，也不会截断内容。
 
-恢复：在「数据与来源 → 恢复完整档案」填写本机 `.sqlite` / `.sqlite.zst` 路径，或点击「选择完整备份」上传。大文件推荐本机路径，不经浏览器传输。程序在当前数据库旁的 `restored` 目录恢复为独立 SQLite，验证 Echo Vault 表结构及 SQLite `quick_check`，完成后显示新文件位置和可复制的启动命令。停止当前服务，再执行该命令切换到恢复的完整档案；当前文件不会被覆盖，也不会将两个档案合并。后台复制 / 解压与验证期间可以继续阅读，刷新后再次打开面板可以查看状态；停止服务会中断未完成的任务。界面恢复上传支持超过 512 MB 的备份，限制为 1 TB；JSON / ZIP 来源导入仍限制 512 MB。
+恢复：在「数据与来源 → 恢复完整档案」填写本机 `.sqlite` / `.sqlite.zst` 路径，或点击「选择完整备份」上传。大文件推荐本机路径，不经浏览器传输。程序在当前数据库旁的 `restored` 目录恢复为独立 SQLite，验证 GPT Vault 表结构及 SQLite `quick_check`，完成后显示新文件位置和可复制的启动命令。停止当前服务，再执行该命令切换到恢复的完整档案；当前文件不会被覆盖，也不会将两个档案合并。后台复制 / 解压与验证期间可以继续阅读，刷新后再次打开面板可以查看状态；停止服务会中断未完成的任务。界面恢复上传支持超过 512 MB 的备份，限制为 1 TB；JSON / ZIP 来源导入仍限制 512 MB。
 
 也可离线恢复到不存在的新文件（拒绝覆盖）：
 
 ```bash
-./bin/echo-vault --restore /path/echo-vault.sqlite.zst --data /new/path/echo.sqlite
-./bin/echo-vault --data /new/path/echo.sqlite
+./bin/gpt-vault --restore /path/gpt-vault.sqlite.zst --data /new/path/echo.sqlite
+./bin/gpt-vault --data /new/path/echo.sqlite
 ```
 
 未压缩的旧版 SQLite 备份可直接用 `--data` 启动，也可通过上面入口恢复。若 SQLite 旁仍有非空 WAL，请使用应用在线备份后再恢复，避免遗漏已提交数据。既有来源路径可能在新设备不可用，可以重新添加，已有历史仍可读。`data/imports` 和上方 ChatGPT「导入文件」只用于原始 JSON / ZIP 导出与后续重试，已成功导入内容保存在数据库中。
@@ -96,18 +96,18 @@ pnpm start
 维护命令（先停止正在使用同一档案的服务；自定义档案请附加 `--data /path/to/echo.sqlite`）：
 
 ```bash
-./bin/echo-vault --sync-only         # 手动增量同步
-./bin/echo-vault --sync-only --full  # 完整扫描，保留已有历史
-./bin/echo-vault --reindex           # 重建全部派生搜索索引
-./bin/echo-vault --index-dialogue    # 仅重建正文检索索引
-./bin/echo-vault --deduplicate       # 原始块按内容去重，保留所有版本
-./bin/echo-vault --compact           # SQLite VACUUM，整理独立档案存储
+./bin/gpt-vault --sync-only         # 手动增量同步
+./bin/gpt-vault --sync-only --full  # 完整扫描，保留已有历史
+./bin/gpt-vault --reindex           # 重建全部派生搜索索引
+./bin/gpt-vault --index-dialogue    # 仅重建正文检索索引
+./bin/gpt-vault --deduplicate       # 原始块按内容去重，保留所有版本
+./bin/gpt-vault --compact           # SQLite VACUUM，整理独立档案存储
 ```
 
 Windows 可执行文件构建：
 
 ```bash
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 GOTOOLCHAIN=local go build -buildvcs=false -trimpath -ldflags="-s -w" -o bin/echo-vault.exe .
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 GOTOOLCHAIN=local go build -buildvcs=false -trimpath -ldflags="-s -w" -o bin/gpt-vault.exe .
 ```
 
 把可执行文件与备份的 SQLite 带到新机器即可运行；运行时不需要前端构建目录或 Go 编译器。
@@ -122,6 +122,15 @@ pnpm test:links # 本地路径识别、localhost 磁盘路径、外部 URL 与 M
 pnpm test:e2e   # Chromium：桌面/手机、搜索定位、筛选、收藏、导出、深浅主题、同源边界
 ```
 
-Go 测试前需先构建前端，因为服务会内嵌 `dist`。浏览器测试需先启动应用并安装 Playwright Chromium；部分测试依赖包含 Windows / WSL 来源和长对话的已导入数据，请使用可丢弃的测试档案。可通过 `ECHO_TEST_URL` 指定测试地址、`ECHO_CHROMIUM` 指定已有 Chromium 路径。截图输出到 `artifacts/`，个人档案、附件、可执行文件与截图均不进入版本控制。
+Go 测试前需先构建前端，因为服务会内嵌 `dist`。浏览器测试需先启动应用并安装 Playwright Chromium；部分测试依赖包含 Windows / WSL 来源和长对话的已导入数据，请使用可丢弃的测试档案。可通过 `ECHO_TEST_URL` 指定测试地址、`ECHO_CHROMIUM` 指定已有 Chromium 路径。测试截图输出到 `artifacts/`，个人档案、附件、可执行文件与测试截图均不进入版本控制。
+
+## README 演示截图
+
+```bash
+pnpm build:web
+pnpm screenshots
+```
+
+脚本用虚构的项目、会话与路径渲染已构建的界面，把三张公开演示图片写入 `docs/images/`。所有浏览器请求均被拦截，不连接正在运行的应用，也不打开个人档案。需先安装 Playwright Chromium；可通过 `GPT_VAULT_CHROMIUM` 指定已有浏览器。包含个人数据的截图应保留在被忽略的 `artifacts/` 目录。
 
 参考：[SQLite FTS5](https://www.sqlite.org/fts5.html)、[SQLite WAL](https://www.sqlite.org/wal.html)、[SQLite 在线备份](https://www.sqlite.org/backup.html)、[Zstandard](https://facebook.github.io/zstd/)、[ChatGPT 官方数据导出](https://help.openai.com/en/articles/7260999-exporting-your-chatgpt-history-and-data)。

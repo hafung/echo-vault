@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func echoVaultRunning(baseURL string) bool {
+func gptVaultRunning(baseURL string) bool {
 	client := &http.Client{Timeout: time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := client.Get(baseURL + "/api/health")
 	if err != nil {
@@ -24,7 +24,7 @@ func echoVaultRunning(baseURL string) bool {
 	var health struct {
 		App string `json:"app"`
 	}
-	return json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&health) == nil && health.App == "echo-vault"
+	return json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&health) == nil && (health.App == "gpt-vault" || health.App == "echo-vault")
 }
 
 func openArchiveBrowser(address string) error {

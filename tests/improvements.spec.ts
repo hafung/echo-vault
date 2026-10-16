@@ -55,7 +55,7 @@ test('local backup remembers directory and displays saved path, errors can be re
   await page.route('**/api/backup/settings',route=>{directory=route.request().postDataJSON().directory;return route.fulfill({json:{directory}});});
   await page.route('**/api/backup',route=>{
     expect(route.request().postDataJSON().mode).toBe('local');
-    job={id:fail?'failed':'local-test',mode:'local',stage:fail?'error':'ready',started:Date.now()/1000,duration:3,done_bytes:7e9,total_bytes:7e9,path:directory+'/echo-vault.sqlite',error:fail?'目标磁盘空间不足':''};
+    job={id:fail?'failed':'local-test',mode:'local',stage:fail?'error':'ready',started:Date.now()/1000,duration:3,done_bytes:7e9,total_bytes:7e9,path:directory+'/gpt-vault.sqlite',error:fail?'目标磁盘空间不足':''};
     return route.fulfill({json:job});
   });
   await page.goto('/');
@@ -65,7 +65,7 @@ test('local backup remembers directory and displays saved path, errors can be re
   await expect(page.locator('#toast')).toContainText('备份位置已记住');
   await page.locator('#backup-local').click();
   await expect(page.locator('#backup-progress')).toContainText('完整备份已保存');
-  await expect(page.locator('#backup-progress code')).toHaveText('/tmp/我的备份/echo-vault.sqlite');
+  await expect(page.locator('#backup-progress code')).toHaveText('/tmp/我的备份/gpt-vault.sqlite');
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:'artifacts/improved-mobile-backup.png'});
   fail=true;

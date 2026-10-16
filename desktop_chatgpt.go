@@ -23,7 +23,7 @@ import (
 
 const desktopCacheKind = "ChatGPT Desktop"
 const cacheReadLimit = 32 << 20
-const desktopPartialCacheWarning = "磁盘缓存只包含部分分页；已保存可读取的正文，可在数据与来源启用桌面主动补全，或通过官方导出补充历史"
+const desktopPartialCacheWarning = "磁盘缓存只包含部分分页；已保存可读取的正文，可在数据与来源启用桌面同步与历史补全，或通过官方导出补充历史"
 
 // Chromium's blockfile HTTP cache. Only the active index and conversation response
 // streams are read; authentication stores, cookies and unrelated bodies are ignored.

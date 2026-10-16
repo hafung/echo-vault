@@ -322,7 +322,7 @@ func (a *App) createBackup(ctx context.Context, id, mode, dir, format string) (r
 	if closeErr != nil {
 		return closeErr
 	}
-	final := filepath.Join(dir, "echo-vault-"+time.Now().Format("20060102-150405")+"-"+id+suffix)
+	final := filepath.Join(dir, "gpt-vault-"+time.Now().Format("20060102-150405")+"-"+id+suffix)
 	if err = os.Rename(partial, final); err != nil {
 		return err
 	}
